@@ -3,13 +3,18 @@ package com.example.harness.tool;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
 import java.util.Map;
+import java.util.function.Supplier;
 
 @Component
 public class ToolExecutor {
+
+    private static final Logger log = LoggerFactory.getLogger(ToolExecutor.class);
 
     private final ToolRegistry toolRegistry;
     private final ObjectMapper objectMapper;
@@ -26,6 +31,11 @@ public class ToolExecutor {
 
     /** 解析模型返回的原始参数，并将格式错误转换为工具结果，避免中断智能体循环。 */
     public ToolResult execute(String toolCallId, String toolName, String rawArguments) {
+        return executeLogged(toolCallId, toolName,
+                () -> executeRaw(toolCallId, toolName, rawArguments));
+    }
+
+    private ToolResult executeRaw(String toolCallId, String toolName, String rawArguments) {
         AgentTool tool = toolRegistry.find(toolName).orElse(null);
         if (tool == null) {
             return ToolResult.failure("UNKNOWN_TOOL", "不支持的工具：" + toolName);
@@ -42,6 +52,12 @@ public class ToolExecutor {
     }
 
     public ToolResult execute(ToolInvocation invocation) {
+        String callId = invocation == null ? null : invocation.toolCallId();
+        String toolName = invocation == null ? null : invocation.name();
+        return executeLogged(callId, toolName, () -> executeInvocation(invocation));
+    }
+
+    private ToolResult executeInvocation(ToolInvocation invocation) {
         if (invocation == null) {
             return ToolResult.failure("INVALID_INVOCATION", "工具调用不能为空");
         }
@@ -51,6 +67,28 @@ public class ToolExecutor {
             return ToolResult.failure("UNKNOWN_TOOL", "不支持的工具：" + invocation.name());
         }
         return execute(tool, invocation);
+    }
+
+    private ToolResult executeLogged(String toolCallId, String toolName, Supplier<ToolResult> action) {
+        long startedAt = System.nanoTime();
+        log.info("工具开始执行 tool={} toolCallId={}", toolName, toolCallId);
+        try {
+            ToolResult result = action.get();
+            long elapsedMs = (System.nanoTime() - startedAt) / 1_000_000;
+            if (result.success()) {
+                log.info("工具执行成功 tool={} toolCallId={} elapsedMs={}",
+                        toolName, toolCallId, elapsedMs);
+            } else {
+                log.warn("工具执行失败 tool={} toolCallId={} elapsedMs={} errorCode={}",
+                        toolName, toolCallId, elapsedMs, result.errorCode());
+            }
+            return result;
+        } catch (RuntimeException e) {
+            long elapsedMs = (System.nanoTime() - startedAt) / 1_000_000;
+            log.error("工具执行异常 tool={} toolCallId={} elapsedMs={} exceptionType={}",
+                    toolName, toolCallId, elapsedMs, e.getClass().getSimpleName());
+            throw e;
+        }
     }
 
     private ToolResult execute(AgentTool tool, ToolInvocation invocation) {

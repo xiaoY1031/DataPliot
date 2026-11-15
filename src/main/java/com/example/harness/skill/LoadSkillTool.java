@@ -5,6 +5,8 @@ import com.example.harness.tool.ToolDefinition;
 import com.example.harness.tool.ToolInvocation;
 import com.example.harness.tool.ToolResult;
 import com.fasterxml.jackson.databind.JsonNode;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -13,6 +15,8 @@ import java.util.Map;
 /** 供模型按名称加载单个 Skill 的完整指令。 */
 @Component
 public class LoadSkillTool implements AgentTool {
+
+    private static final Logger log = LoggerFactory.getLogger(LoadSkillTool.class);
 
     private static final ToolDefinition DEFINITION = new ToolDefinition(
             "load_skill",
@@ -47,13 +51,21 @@ public class LoadSkillTool implements AgentTool {
         }
 
         String name = arguments.path("name").asText();
+        long startedAt = System.nanoTime();
         try {
             LoadedSkill loaded = skillLoader.load(name);
+            log.info("Skill 加载成功 name={} elapsedMs={} instructionLength={}",
+                    loaded.metadata().name(), (System.nanoTime() - startedAt) / 1_000_000,
+                    loaded.instructions().length());
             return ToolResult.success("已加载 Skill：" + loaded.metadata().name()
                     + "\n\n" + loaded.instructions());
         } catch (SkillLoader.SkillNotFoundException e) {
+            log.warn("Skill 加载失败 name={} reason=未找到 elapsedMs={}",
+                    name, (System.nanoTime() - startedAt) / 1_000_000);
             return ToolResult.failure("UNKNOWN_SKILL", e.getMessage());
         } catch (IllegalArgumentException e) {
+            log.warn("Skill 加载失败 name={} reason=名称无效 elapsedMs={}",
+                    name, (System.nanoTime() - startedAt) / 1_000_000);
             return ToolResult.failure("INVALID_ARGUMENTS", e.getMessage());
         }
     }

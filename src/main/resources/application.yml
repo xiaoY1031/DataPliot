@@ -1,6 +1,10 @@
 server:
   port: 8081
 
+logging:
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [turn:%X{turnId:-}] [task:%X{taskId:-}] [llm:%X{llmCallNo:-}] [%thread] %logger{36} - %msg%n%ex"
+
 spring:
   datasource:
     url: "jdbc:mysql://${DATAPILOT_DB_HOST:localhost}:${DATAPILOT_DB_PORT:3306}/${DATAPILOT_DB_NAME:}"
@@ -28,7 +32,6 @@ qwen:
 
 harness:
   workspace: "F:/project"
-
 datapilot:
   skills-directory: ${DATAPILOT_SKILLS_DIR:skills}
 
