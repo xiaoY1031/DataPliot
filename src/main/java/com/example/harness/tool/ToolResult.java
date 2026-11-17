@@ -23,7 +23,7 @@ public record ToolResult(
         return new ToolResult(false, message, errorCode);
     }
 
-    /** 转换为字符串内容，保持当前千问工具消息协议不变。 */
+    /** 转换为 OpenAI 兼容协议使用的工具消息文本。 */
     public String toModelContent() {
         return success ? content : "工具错误[" + errorCode + "]：" + content;
     }

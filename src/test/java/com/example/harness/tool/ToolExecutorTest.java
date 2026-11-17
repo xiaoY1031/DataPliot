@@ -9,9 +9,9 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @SpringBootTest(properties = {
-        "qwen.api-key=test-key",
-        "qwen.base-url=https://example.test/v1",
-        "qwen.model=qwen-plus"
+        "llm.api-key=test-key",
+        "llm.base-url=https://example.test/v1",
+        "llm.model=test-model"
 })
 class ToolExecutorTest {
 

@@ -25,10 +25,10 @@ spring:
     init:
       mode: never
 
-qwen:
-  api-key: ${DASHSCOPE_API_KEY:}
-  base-url: https://dashscope.aliyuncs.com/compatible-mode/v1
-  model: qwen-plus
+llm:
+  api-key: ${LLM_API_KEY:}
+  base-url: ${LLM_BASE_URL:https://api.deepseek.com}
+  model: ${LLM_MODEL:deepseek-flash}
 
 harness:
   workspace: "F:/project"

@@ -34,15 +34,30 @@ public class AgentRuntime {
             log.info("Turn 开始 taskId={} goalLength={}", taskId, task.goal().length());
 
             AgentResult result = taskStore.withTaskLock(taskId, lockedTask -> {
+                int initialModelRequests = lockedTask.modelRequestCount();
+                int initialToolCalls = lockedTask.toolCallCount();
+                int initialToolFailures = lockedTask.toolFailureCount();
+                long initialPromptTokens = lockedTask.promptTokenCount();
+                long initialCompletionTokens = lockedTask.completionTokenCount();
+                long initialTotalTokens = lockedTask.totalTokenCount();
+                int initialUsageReports = lockedTask.modelUsageReportCount();
                 taskStore.start(lockedTask);
                 try {
                     String answer = agentLoop.run(lockedTask, userMessage);
                     taskStore.complete(lockedTask);
                     log.info("Agent 返回最终答案 taskId={} answerLength={}",
                             lockedTask.taskId(), answer.length());
+                    logTurnMetrics(lockedTask, "SUCCESS", startedAt,
+                            initialModelRequests, initialToolCalls, initialToolFailures,
+                            initialPromptTokens, initialCompletionTokens, initialTotalTokens,
+                            initialUsageReports);
                     return new AgentResult(lockedTask.taskId(), answer);
                 } catch (RuntimeException e) {
                     taskStore.fail(lockedTask, e.getMessage());
+                    logTurnMetrics(lockedTask, "FAILED", startedAt,
+                            initialModelRequests, initialToolCalls, initialToolFailures,
+                            initialPromptTokens, initialCompletionTokens, initialTotalTokens,
+                            initialUsageReports);
                     throw e;
                 }
             });
@@ -64,6 +79,30 @@ public class AgentRuntime {
 
     private long elapsedMillis(long startedAt) {
         return (System.nanoTime() - startedAt) / 1_000_000;
+    }
+
+    private void logTurnMetrics(
+            TaskState task,
+            String outcome,
+            long startedAt,
+            int initialModelRequests,
+            int initialToolCalls,
+            int initialToolFailures,
+            long initialPromptTokens,
+            long initialCompletionTokens,
+            long initialTotalTokens,
+            int initialUsageReports) {
+        log.info("Turn 指标 outcome={} modelCalls={} toolCalls={} toolFailures={} "
+                        + "usageReports={} promptTokens={} completionTokens={} totalTokens={} elapsedMs={}",
+                outcome,
+                task.modelRequestCount() - initialModelRequests,
+                task.toolCallCount() - initialToolCalls,
+                task.toolFailureCount() - initialToolFailures,
+                task.modelUsageReportCount() - initialUsageReports,
+                task.promptTokenCount() - initialPromptTokens,
+                task.completionTokenCount() - initialCompletionTokens,
+                task.totalTokenCount() - initialTotalTokens,
+                elapsedMillis(startedAt));
     }
 
     public record AgentResult(String taskId, String answer) {

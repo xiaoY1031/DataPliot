@@ -15,6 +15,7 @@ import java.nio.file.Path;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
@@ -22,17 +23,17 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
-class QwenClientTest {
+class OpenAiCompatibleLlmClientTest {
 
     @Test
-    void sendsStructuredRequestAndParsesOrdinaryAnswer() {
+    void sendsStructuredRequestAndParsesAnswerAndUsage() {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        QwenClient client = createClient(builder);
+        OpenAiCompatibleLlmClient client = createClient(builder);
 
         server.expect(requestTo("https://example.test/v1/chat/completions"))
                 .andExpect(header("Authorization", "Bearer test-key"))
-                .andExpect(jsonPath("$.model").value("qwen-plus"))
+                .andExpect(jsonPath("$.model").value("configured-model"))
                 .andExpect(jsonPath("$.messages[0].role").value("system"))
                 .andExpect(jsonPath("$.messages[0].content").value("系统提示"))
                 .andExpect(jsonPath("$.messages[1].role").value("user"))
@@ -40,7 +41,9 @@ class QwenClientTest {
                 .andExpect(jsonPath("$.tools[0].function.name").value("get_project_info"))
                 .andExpect(jsonPath("$.tool_choice").value("auto"))
                 .andRespond(withSuccess("""
-                        {"choices":[{"finish_reason":"stop",
+                        {"model":"deepseek-chat","usage":{
+                        "prompt_tokens":10,"completion_tokens":4,"total_tokens":14},
+                        "choices":[{"finish_reason":"stop",
                         "message":{"role":"assistant","content":"你好"}}]}
                         """, MediaType.APPLICATION_JSON));
 
@@ -50,6 +53,10 @@ class QwenClientTest {
 
         assertEquals("你好", response.assistantMessage().content());
         assertEquals("stop", response.finishReason());
+        assertEquals("deepseek-chat", response.model());
+        assertEquals(10, response.usage().promptTokens());
+        assertEquals(4, response.usage().completionTokens());
+        assertEquals(14, response.usage().totalTokens());
         assertEquals(List.of(), response.assistantMessage().toolCalls());
         server.verify();
     }
@@ -58,7 +65,7 @@ class QwenClientTest {
     void parsesToolCallsAndPreservesAssistantHistory() {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        QwenClient client = createClient(builder);
+        OpenAiCompatibleLlmClient client = createClient(builder);
 
         server.expect(requestTo("https://example.test/v1/chat/completions"))
                 .andExpect(jsonPath("$.messages[1].role").value("assistant"))
@@ -85,6 +92,8 @@ class QwenClientTest {
 
         assertNull(response.assistantMessage().content());
         assertEquals("tool_calls", response.finishReason());
+        assertEquals("configured-model", response.model());
+        assertFalse(response.usage().known());
         assertEquals("call_2", response.assistantMessage().toolCalls().get(0).id());
         assertEquals("list_files", response.assistantMessage().toolCalls().get(0).name());
         assertEquals("{\"path\":\"src/main\"}",
@@ -96,7 +105,7 @@ class QwenClientTest {
     void sendsParameterSchemaProvidedByRegistryTool(@TempDir Path workspace) {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        QwenClient client = createClient(builder);
+        OpenAiCompatibleLlmClient client = createClient(builder);
 
         server.expect(requestTo("https://example.test/v1/chat/completions"))
                 .andExpect(jsonPath("$.tools.length()").value(1))
@@ -118,17 +127,17 @@ class QwenClientTest {
     }
 
     @Test
-    void rejectsInvalidQwenResponse() {
+    void rejectsInvalidCompatibleResponse() {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        QwenClient client = createClient(builder);
+        OpenAiCompatibleLlmClient client = createClient(builder);
 
         server.expect(requestTo("https://example.test/v1/chat/completions"))
                 .andRespond(withSuccess("{\"choices\":[]}", MediaType.APPLICATION_JSON));
 
         var error = assertThrows(IllegalStateException.class,
                 () -> client.complete(new LlmRequest(List.of(), List.of())));
-        assertEquals("千问 API 没有返回有效回答", error.getMessage());
+        assertEquals("模型 API 没有返回有效回答", error.getMessage());
         server.verify();
     }
 
@@ -136,7 +145,7 @@ class QwenClientTest {
     void rejectsToolCallWithoutId() {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        QwenClient client = createClient(builder);
+        OpenAiCompatibleLlmClient client = createClient(builder);
 
         server.expect(requestTo("https://example.test/v1/chat/completions"))
                 .andRespond(withSuccess("""
@@ -147,7 +156,7 @@ class QwenClientTest {
 
         var error = assertThrows(IllegalStateException.class,
                 () -> client.complete(new LlmRequest(List.of(), List.of())));
-        assertEquals("千问返回的工具调用缺少 ID", error.getMessage());
+        assertEquals("模型 API 返回的工具调用缺少 ID", error.getMessage());
         server.verify();
     }
 
@@ -155,7 +164,7 @@ class QwenClientTest {
     void preservesMissingArgumentsForExecutorValidation() {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        QwenClient client = createClient(builder);
+        OpenAiCompatibleLlmClient client = createClient(builder);
 
         server.expect(requestTo("https://example.test/v1/chat/completions"))
                 .andRespond(withSuccess("""
@@ -170,11 +179,22 @@ class QwenClientTest {
         server.verify();
     }
 
-    private QwenClient createClient(RestClient.Builder builder) {
-        return new QwenClient(
+    @Test
+    void rejectsMissingApiKeyWithGenericMessage() {
+        OpenAiCompatibleLlmClient client = new OpenAiCompatibleLlmClient(
+                "", "https://example.test/v1", "configured-model", RestClient.builder());
+
+        var error = assertThrows(IllegalStateException.class,
+                () -> client.complete(new LlmRequest(List.of(), List.of())));
+
+        assertEquals("请配置 LLM_API_KEY", error.getMessage());
+    }
+
+    private OpenAiCompatibleLlmClient createClient(RestClient.Builder builder) {
+        return new OpenAiCompatibleLlmClient(
                 "test-key",
                 "https://example.test/v1",
-                "qwen-plus",
+                "configured-model",
                 builder);
     }
 }

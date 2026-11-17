@@ -16,6 +16,11 @@ public class TaskState {
     private int turnCount;
     private int modelRequestCount;
     private int toolCallCount;
+    private int toolFailureCount;
+    private long promptTokenCount;
+    private long completionTokenCount;
+    private long totalTokenCount;
+    private int modelUsageReportCount;
     private String lastError;
     private final Instant createdAt;
     private Instant updatedAt;
@@ -54,6 +59,26 @@ public class TaskState {
 
     public synchronized int toolCallCount() {
         return toolCallCount;
+    }
+
+    public synchronized int toolFailureCount() {
+        return toolFailureCount;
+    }
+
+    public synchronized long promptTokenCount() {
+        return promptTokenCount;
+    }
+
+    public synchronized long completionTokenCount() {
+        return completionTokenCount;
+    }
+
+    public synchronized long totalTokenCount() {
+        return totalTokenCount;
+    }
+
+    public synchronized int modelUsageReportCount() {
+        return modelUsageReportCount;
     }
 
     public synchronized String lastError() {
@@ -107,6 +132,25 @@ public class TaskState {
 
     synchronized void addToolCalls(int count) {
         toolCallCount += count;
+        touch();
+    }
+
+    synchronized void addToolFailures(int count) {
+        toolFailureCount += count;
+        touch();
+    }
+
+    synchronized void addModelUsage(long promptTokens, long completionTokens, long totalTokens) {
+        modelUsageReportCount++;
+        if (promptTokens >= 0) {
+            promptTokenCount += promptTokens;
+        }
+        if (completionTokens >= 0) {
+            completionTokenCount += completionTokens;
+        }
+        if (totalTokens >= 0) {
+            totalTokenCount += totalTokens;
+        }
         touch();
     }
 

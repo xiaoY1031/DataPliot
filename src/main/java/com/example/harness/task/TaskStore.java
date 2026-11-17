@@ -1,6 +1,7 @@
 package com.example.harness.task;
 
 import com.example.harness.llm.model.LlmMessage;
+import com.example.harness.llm.model.LlmUsage;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -77,6 +78,21 @@ public class TaskStore {
 
     public void recordToolCalls(TaskState task, int count) {
         task.addToolCalls(count);
+    }
+
+    public void recordToolFailures(TaskState task, int count) {
+        if (count > 0) {
+            task.addToolFailures(count);
+        }
+    }
+
+    public void recordModelUsage(TaskState task, LlmUsage usage) {
+        if (usage != null && usage.known()) {
+            task.addModelUsage(
+                    usage.promptTokens(),
+                    usage.completionTokens(),
+                    usage.totalTokens());
+        }
     }
 
     @FunctionalInterface

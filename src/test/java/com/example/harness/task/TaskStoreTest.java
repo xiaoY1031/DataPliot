@@ -1,5 +1,6 @@
 package com.example.harness.task;
 
+import com.example.harness.llm.model.LlmUsage;
 import org.junit.jupiter.api.Test;
 
 import java.util.concurrent.CountDownLatch;
@@ -25,12 +26,19 @@ class TaskStoreTest {
         store.recordTurn(first);
         store.recordModelRequest(first);
         store.recordToolCalls(first, 2);
+        store.recordToolFailures(first, 1);
+        store.recordModelUsage(first, new LlmUsage(100, 20, 120));
         store.complete(first);
 
         assertEquals(TaskState.Status.COMPLETED, first.status());
         assertEquals(1, first.turnCount());
         assertEquals(1, first.modelRequestCount());
         assertEquals(2, first.toolCallCount());
+        assertEquals(1, first.toolFailureCount());
+        assertEquals(100, first.promptTokenCount());
+        assertEquals(20, first.completionTokenCount());
+        assertEquals(120, first.totalTokenCount());
+        assertEquals(1, first.modelUsageReportCount());
     }
 
     @Test

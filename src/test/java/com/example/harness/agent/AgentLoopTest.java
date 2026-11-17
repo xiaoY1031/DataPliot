@@ -6,6 +6,7 @@ import com.example.harness.llm.model.LlmMessage;
 import com.example.harness.llm.model.LlmRequest;
 import com.example.harness.llm.model.LlmResponse;
 import com.example.harness.llm.model.LlmToolCall;
+import com.example.harness.llm.model.LlmUsage;
 import com.example.harness.skill.SkillLoader;
 import com.example.harness.task.TaskState;
 import com.example.harness.task.TaskStore;
@@ -126,6 +127,34 @@ class AgentLoopTest {
                 .thenReturn(ToolResult.failure("UNKNOWN_TOOL", "不支持的工具"));
 
         assertEquals("已处理错误", fixture.loop.run(fixture.task, "错误工具"));
+    }
+
+    @Test
+    void recordsTokenUsageAndToolFailures() {
+        Fixture fixture = fixture("统计指标");
+        when(fixture.client.complete(any()))
+                .thenReturn(new LlmResponse(
+                        LlmMessage.assistant(null, List.of(
+                                new LlmToolCall("call_failed", "function", "missing_tool", "{}"))),
+                        "tool_calls",
+                        "test-model",
+                        new LlmUsage(100, 10, 110)))
+                .thenReturn(new LlmResponse(
+                        LlmMessage.assistant("完成", List.of()),
+                        "stop",
+                        "test-model",
+                        new LlmUsage(200, 20, 220)));
+        when(fixture.executor.execute("call_failed", "missing_tool", "{}"))
+                .thenReturn(ToolResult.failure("UNKNOWN_TOOL", "不支持的工具"));
+
+        assertEquals("完成", fixture.loop.run(fixture.task, "统计指标"));
+        assertEquals(2, fixture.task.modelRequestCount());
+        assertEquals(1, fixture.task.toolCallCount());
+        assertEquals(1, fixture.task.toolFailureCount());
+        assertEquals(300, fixture.task.promptTokenCount());
+        assertEquals(30, fixture.task.completionTokenCount());
+        assertEquals(330, fixture.task.totalTokenCount());
+        assertEquals(2, fixture.task.modelUsageReportCount());
     }
 
     @Test

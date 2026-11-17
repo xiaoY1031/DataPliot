@@ -76,8 +76,12 @@ public class ToolExecutor {
             ToolResult result = action.get();
             long elapsedMs = (System.nanoTime() - startedAt) / 1_000_000;
             if (result.success()) {
-                log.info("工具执行成功 tool={} toolCallId={} elapsedMs={}",
-                        toolName, toolCallId, elapsedMs);
+                log.info("工具执行成功 tool={} toolCallId={} elapsedMs={} resultLength={}",
+                        toolName, toolCallId, elapsedMs, result.content().length());
+                logResultMetadata(toolName, toolCallId, result.content());
+            } else if ("SQL_SAFETY_REJECTED".equals(result.errorCode())) {
+                log.warn("工具执行失败 tool={} toolCallId={} elapsedMs={} errorCode={} reason={}",
+                        toolName, toolCallId, elapsedMs, result.errorCode(), safeLogDetail(result.content()));
             } else {
                 log.warn("工具执行失败 tool={} toolCallId={} elapsedMs={} errorCode={}",
                         toolName, toolCallId, elapsedMs, result.errorCode());
@@ -89,6 +93,30 @@ public class ToolExecutor {
                     toolName, toolCallId, elapsedMs, e.getClass().getSimpleName());
             throw e;
         }
+    }
+
+    private void logResultMetadata(String toolName, String toolCallId, String content) {
+        try {
+            JsonNode node = objectMapper.readTree(content);
+            if (node != null && node.isObject() && node.has("truncated")) {
+                log.info("工具结果元数据 tool={} toolCallId={} truncated={} truncationReasons={}",
+                        toolName,
+                        toolCallId,
+                        node.path("truncated").asBoolean(false),
+                        node.path("truncationReasons"));
+            }
+        } catch (JsonProcessingException | IllegalArgumentException ignored) {
+            // 非 JSON 工具结果不需要额外元数据日志。
+        }
+    }
+
+    private String safeLogDetail(String content) {
+        String compact = content == null ? "" : content
+                .replaceAll("'(?:''|[^'])*'", "'?'")
+                .replaceAll("\"(?:\\\\.|[^\"\\\\])*\"", "\"?\"")
+                .replaceAll("[\\r\\n\\t]+", " ")
+                .trim();
+        return compact.length() <= 300 ? compact : compact.substring(0, 300) + "...";
     }
 
     private ToolResult execute(AgentTool tool, ToolInvocation invocation) {

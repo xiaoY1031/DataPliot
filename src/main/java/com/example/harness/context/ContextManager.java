@@ -1,6 +1,7 @@
 package com.example.harness.context;
 
 import com.example.harness.llm.model.LlmMessage;
+import com.example.harness.llm.model.LlmUsage;
 import com.example.harness.skill.SkillLoader;
 import com.example.harness.task.TaskState;
 import com.example.harness.task.TaskStore;
@@ -122,6 +123,14 @@ public class ContextManager {
 
     public void recordModelRequest(TaskState task) {
         taskStore.recordModelRequest(task);
+    }
+
+    public void recordModelUsage(TaskState task, LlmUsage usage) {
+        taskStore.recordModelUsage(task, usage);
+    }
+
+    public void recordToolFailures(TaskState task, int count) {
+        taskStore.recordToolFailures(task, count);
     }
 
     private String readPrompt(Resource resource) {

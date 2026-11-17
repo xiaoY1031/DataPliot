@@ -1,6 +1,6 @@
 package com.example.harness.llm.model;
 
-/** 模型发起的结构化工具调用，保留千问返回的调用 ID 和原始参数。 */
+/** 模型发起的结构化工具调用，保留供应商返回的调用 ID 和原始参数。 */
 public record LlmToolCall(
         String id,
         String type,
