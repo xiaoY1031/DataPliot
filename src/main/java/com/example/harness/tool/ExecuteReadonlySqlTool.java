@@ -1,7 +1,6 @@
 package com.example.harness.tool;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import net.sf.jsqlparser.JSQLParserException;
 import net.sf.jsqlparser.parser.CCJSqlParserUtil;
@@ -15,23 +14,15 @@ import net.sf.jsqlparser.statement.select.Select;
 import net.sf.jsqlparser.statement.select.SetOperationList;
 import net.sf.jsqlparser.statement.select.WithItem;
 import net.sf.jsqlparser.util.TablesNamesFinder;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import javax.sql.DataSource;
-import java.io.InputStream;
-import java.io.Reader;
-import java.math.BigDecimal;
-import java.math.BigInteger;
 import java.sql.Connection;
 import java.sql.ResultSet;
-import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
 import java.sql.SQLTimeoutException;
-import java.sql.Types;
-import java.time.temporal.TemporalAccessor;
 import java.util.ArrayList;
-import java.util.Base64;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -44,8 +35,9 @@ public class ExecuteReadonlySqlTool implements AgentTool {
 
     static final int MAX_ROWS = 100;
     static final int QUERY_TIMEOUT_SECONDS = 10;
-    static final int MAX_TEXT_LENGTH = 2_000;
+    static final int MAX_TEXT_LENGTH = DatabaseResultSetMapper.MAX_FIELD_LENGTH;
     static final int MAX_SQL_LENGTH = 20_000;
+    static final int DEFAULT_MAX_RESULT_BYTES = 262_144;
 
     private static final ToolDefinition DEFINITION = new ToolDefinition(
             "execute_readonly_sql",
@@ -60,16 +52,6 @@ public class ExecuteReadonlySqlTool implements AgentTool {
                     "additionalProperties", false));
     private static final Set<String> SYSTEM_DATABASES = Set.of(
             "information_schema", "mysql", "performance_schema", "sys");
-    private static final Set<Integer> NUMERIC_TYPES = Set.of(
-            Types.TINYINT, Types.SMALLINT, Types.INTEGER, Types.BIGINT,
-            Types.FLOAT, Types.REAL, Types.DOUBLE, Types.NUMERIC, Types.DECIMAL);
-    private static final Set<Integer> BOOLEAN_TYPES = Set.of(Types.BOOLEAN, Types.BIT);
-    private static final Set<Integer> BINARY_TYPES = Set.of(
-            Types.BINARY, Types.VARBINARY, Types.LONGVARBINARY, Types.BLOB);
-    private static final Set<Integer> TEXT_TYPES = Set.of(
-            Types.CHAR, Types.VARCHAR, Types.LONGVARCHAR,
-            Types.NCHAR, Types.NVARCHAR, Types.LONGNVARCHAR,
-            Types.CLOB, Types.NCLOB, Types.SQLXML);
     private static final Set<String> BLOCKED_FUNCTIONS = Set.of(
             "benchmark", "get_lock", "is_free_lock", "is_used_lock",
             "load_file", "master_pos_wait", "release_all_locks",
@@ -115,10 +97,27 @@ public class ExecuteReadonlySqlTool implements AgentTool {
 
     private final DataSource dataSource;
     private final ObjectMapper objectMapper;
+    private final SensitiveFieldPolicy sensitiveFieldPolicy;
+    private final DatabaseResultSetMapper resultSetMapper;
 
     public ExecuteReadonlySqlTool(DataSource dataSource, ObjectMapper objectMapper) {
+        this(
+                dataSource,
+                objectMapper,
+                SensitiveFieldPolicy.none(),
+                new DatabaseResultSetMapper(objectMapper, DEFAULT_MAX_RESULT_BYTES));
+    }
+
+    @Autowired
+    public ExecuteReadonlySqlTool(
+            DataSource dataSource,
+            ObjectMapper objectMapper,
+            SensitiveFieldPolicy sensitiveFieldPolicy,
+            DatabaseResultSetMapper resultSetMapper) {
         this.dataSource = dataSource;
         this.objectMapper = objectMapper;
+        this.sensitiveFieldPolicy = sensitiveFieldPolicy;
+        this.resultSetMapper = resultSetMapper;
     }
 
     @Override
@@ -177,7 +176,14 @@ public class ExecuteReadonlySqlTool implements AgentTool {
                 statement.setMaxRows(MAX_ROWS + 1);
                 statement.setFetchSize(MAX_ROWS + 1);
                 try (ResultSet resultSet = statement.executeQuery(query.sql())) {
-                    return ToolResult.success(toJson(resultSet).toString());
+                    ObjectNode content = objectMapper.createObjectNode();
+                    resultSetMapper.map(
+                            resultSet,
+                            content,
+                            MAX_ROWS,
+                            query.maskedColumnIndexes(),
+                            "rowCount");
+                    return ToolResult.success(content.toString());
                 }
             }
         } catch (SQLException e) {
@@ -230,6 +236,12 @@ public class ExecuteReadonlySqlTool implements AgentTool {
         }
 
         validateSelectTree(select);
+        SensitiveSqlProjectionAnalyzer.ProjectionPlan projectionPlan;
+        try {
+            projectionPlan = new SensitiveSqlProjectionAnalyzer(sensitiveFieldPolicy).analyze(select);
+        } catch (SensitiveSqlProjectionAnalyzer.SensitiveAccessException e) {
+            throw new UnsafeSqlException(e.getMessage());
+        }
         String normalized = select.toString();
         String lower = normalized.toLowerCase(Locale.ROOT);
         for (String function : BLOCKED_FUNCTIONS) {
@@ -240,7 +252,10 @@ public class ExecuteReadonlySqlTool implements AgentTool {
 
         Set<String> tableReferences = new TablesNamesFinder<Void>()
                 .getTables((net.sf.jsqlparser.statement.Statement) select);
-        return new ValidatedQuery(normalized, Set.copyOf(tableReferences));
+        return new ValidatedQuery(
+                normalized,
+                Set.copyOf(tableReferences),
+                projectionPlan.maskedColumnIndexes());
     }
 
     private boolean isTimeout(SQLException exception) {
@@ -405,165 +420,10 @@ public class ExecuteReadonlySqlTool implements AgentTool {
         return trimmed;
     }
 
-    private ObjectNode toJson(ResultSet resultSet) throws SQLException {
-        ResultSetMetaData metadata = resultSet.getMetaData();
-        List<ColumnOutput> columns = readColumns(metadata);
-        ObjectNode content = objectMapper.createObjectNode();
-        ArrayNode columnArray = content.putArray("columns");
-        for (ColumnOutput column : columns) {
-            ObjectNode item = columnArray.addObject();
-            item.put("name", column.outputName());
-            item.put("type", column.typeName());
-        }
-
-        ArrayNode rowArray = content.putArray("rows");
-        int rowCount = 0;
-        boolean truncated = false;
-        while (resultSet.next()) {
-            if (rowCount == MAX_ROWS) {
-                truncated = true;
-                break;
-            }
-            ObjectNode row = rowArray.addObject();
-            for (ColumnOutput column : columns) {
-                writeValue(row, column.outputName(), resultSet, column);
-            }
-            rowCount++;
-        }
-        content.put("rowCount", rowCount);
-        content.put("truncated", truncated);
-        return content;
-    }
-
-    private List<ColumnOutput> readColumns(ResultSetMetaData metadata) throws SQLException {
-        List<ColumnOutput> result = new ArrayList<>();
-        Map<String, Integer> occurrences = new HashMap<>();
-        for (int index = 1; index <= metadata.getColumnCount(); index++) {
-            String label = metadata.getColumnLabel(index);
-            if (label == null || label.isBlank()) {
-                label = metadata.getColumnName(index);
-            }
-            if (label == null || label.isBlank()) {
-                label = "column_" + index;
-            }
-            int occurrence = occurrences.merge(label, 1, Integer::sum);
-            String outputName = occurrence == 1 ? label : label + "_" + occurrence;
-            result.add(new ColumnOutput(
-                    index,
-                    outputName,
-                    metadata.getColumnType(index),
-                    metadata.getColumnTypeName(index)));
-        }
-        return List.copyOf(result);
-    }
-
-    private void writeValue(
-            ObjectNode row,
-            String name,
-            ResultSet resultSet,
-            ColumnOutput column) throws SQLException {
-        if (TEXT_TYPES.contains(column.jdbcType())) {
-            String value = readText(resultSet, column.index());
-            if (value == null) {
-                row.putNull(name);
-            } else {
-                row.put(name, value);
-            }
-            return;
-        }
-        if (BINARY_TYPES.contains(column.jdbcType())) {
-            String value = readBinary(resultSet, column.index());
-            if (value == null) {
-                row.putNull(name);
-            } else {
-                row.put(name, value);
-            }
-            return;
-        }
-
-        Object raw = resultSet.getObject(column.index());
-        if (raw == null) {
-            row.putNull(name);
-            return;
-        }
-
-        if (NUMERIC_TYPES.contains(column.jdbcType())
-                && (raw instanceof Number || raw instanceof BigInteger || raw instanceof BigDecimal)) {
-            row.set(name, objectMapper.valueToTree(raw));
-            return;
-        }
-        if (BOOLEAN_TYPES.contains(column.jdbcType()) && raw instanceof Boolean value) {
-            row.put(name, value);
-            return;
-        }
-        if (raw instanceof java.sql.Date value) {
-            row.put(name, value.toLocalDate().toString());
-            return;
-        }
-        if (raw instanceof java.sql.Time value) {
-            row.put(name, value.toLocalTime().toString());
-            return;
-        }
-        if (raw instanceof java.sql.Timestamp value) {
-            row.put(name, value.toLocalDateTime().toString());
-            return;
-        }
-        if (raw instanceof TemporalAccessor) {
-            row.put(name, raw.toString());
-            return;
-        }
-        row.put(name, truncate(String.valueOf(raw)));
-    }
-
-    private String readText(ResultSet resultSet, int index) throws SQLException {
-        try (Reader reader = resultSet.getCharacterStream(index)) {
-            if (reader == null) {
-                return null;
-            }
-            return truncate(readCharacters(reader));
-        } catch (java.io.IOException e) {
-            throw new SQLException("读取文本字段失败", e);
-        }
-    }
-
-    private String readCharacters(Reader reader) throws java.io.IOException {
-        int limit = MAX_TEXT_LENGTH + 1;
-        StringBuilder content = new StringBuilder();
-        char[] buffer = new char[Math.min(512, limit)];
-        while (content.length() < limit) {
-            int count = reader.read(buffer, 0, Math.min(buffer.length, limit - content.length()));
-            if (count < 0) {
-                break;
-            }
-            content.append(buffer, 0, count);
-        }
-        return content.toString();
-    }
-
-    private String readBinary(ResultSet resultSet, int index) throws SQLException {
-        int maxBytes = MAX_TEXT_LENGTH * 3 / 4 + 1;
-        try (InputStream stream = resultSet.getBinaryStream(index)) {
-            if (stream == null) {
-                return null;
-            }
-            byte[] bytes = stream.readNBytes(maxBytes);
-            return truncate(Base64.getEncoder().encodeToString(bytes));
-        } catch (java.io.IOException e) {
-            throw new SQLException("读取二进制字段失败", e);
-        }
-    }
-
-    private String truncate(String value) {
-        if (value == null || value.length() <= MAX_TEXT_LENGTH) {
-            return value;
-        }
-        return value.substring(0, MAX_TEXT_LENGTH) + "…[已截断]";
-    }
-
-    private record ValidatedQuery(String sql, Set<String> tableReferences) {
-    }
-
-    private record ColumnOutput(int index, String outputName, int jdbcType, String typeName) {
+    private record ValidatedQuery(
+            String sql,
+            Set<String> tableReferences,
+            Set<Integer> maskedColumnIndexes) {
     }
 
     private static class UnsafeSqlException extends Exception {

@@ -11,6 +11,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -34,6 +35,9 @@ class DescribeTableToolTest {
     private final ResultSet tableInfo = mock(ResultSet.class);
     private final ResultSet primaryKeys = mock(ResultSet.class);
     private final ResultSet columns = mock(ResultSet.class);
+    private final ResultSet importedKeys = mock(ResultSet.class);
+    private final ResultSet exportedKeys = mock(ResultSet.class);
+    private final ResultSet indexes = mock(ResultSet.class);
     private final DescribeTableTool tool = new DescribeTableTool(dataSource, objectMapper);
     private final ToolRegistry registry = new ToolRegistry(List.of(tool));
     private final ToolExecutor executor = new ToolExecutor(registry, objectMapper);
@@ -93,6 +97,11 @@ class DescribeTableToolTest {
         assertEquals(2, resultColumns.get(2).path("decimal_digits").asInt());
         assertEquals("0.00", resultColumns.get(2).path("default_value").asText());
         assertEquals(3, resultColumns.get(2).path("ordinal_position").asInt());
+        assertEquals(0, content.path("imported_foreign_keys").size());
+        assertEquals(0, content.path("exported_foreign_keys").size());
+        assertEquals(0, content.path("indexes").size());
+        assertEquals(0, content.path("unique_indexes").size());
+        assertEquals(0, content.path("metadata_warnings").size());
         verify(tableInfo).close();
         verify(primaryKeys).close();
         verify(columns).close();
@@ -113,6 +122,138 @@ class DescribeTableToolTest {
         assertTrue(resultColumns.get(1).path("primary_key").asBoolean());
         assertFalse(resultColumns.get(2).path("primary_key").asBoolean());
         assertTrue(objectMapper.readTree(result.content()).path("table_comment").isNull());
+    }
+
+    @Test
+    void returnsImportedAndExportedCompositeForeignKeysInKeySequence() throws Exception {
+        prepareOrdinaryTable("order_item", "订单明细");
+        preparePrimaryKeys("order_item", "order_id", "line_no");
+        prepareColumns("order_item", "order_id", "line_no", "product_id");
+
+        org.mockito.Mockito.reset(importedKeys, exportedKeys);
+        when(metadata.getImportedKeys(CATALOG, null, "order_item")).thenReturn(importedKeys);
+        when(metadata.getExportedKeys(CATALOG, null, "order_item")).thenReturn(exportedKeys);
+        when(importedKeys.next()).thenReturn(true, true, false);
+        when(importedKeys.getString("FKTABLE_CAT")).thenReturn(CATALOG);
+        when(importedKeys.getString("FKTABLE_NAME")).thenReturn("order_item");
+        when(importedKeys.getString("PKTABLE_NAME")).thenReturn("orders");
+        when(importedKeys.getString("FK_NAME")).thenReturn((String) null);
+        when(importedKeys.getObject("KEY_SEQ")).thenReturn(1, 2);
+        when(importedKeys.getString("FKCOLUMN_NAME")).thenReturn("order_id", "line_no");
+        when(importedKeys.getString("PKCOLUMN_NAME")).thenReturn("id", "line_no");
+        when(importedKeys.getObject("UPDATE_RULE"))
+                .thenReturn(DatabaseMetaData.importedKeyNoAction);
+        when(importedKeys.getObject("DELETE_RULE"))
+                .thenReturn(DatabaseMetaData.importedKeyCascade);
+
+        when(exportedKeys.next()).thenReturn(true, false);
+        when(exportedKeys.getString("PKTABLE_CAT")).thenReturn(CATALOG);
+        when(exportedKeys.getString("PKTABLE_NAME")).thenReturn("order_item");
+        when(exportedKeys.getString("FKTABLE_NAME")).thenReturn("shipment_item");
+        when(exportedKeys.getString("FK_NAME")).thenReturn("fk_shipment_order_item");
+        when(exportedKeys.getObject("KEY_SEQ")).thenReturn(1);
+        when(exportedKeys.getString("FKCOLUMN_NAME")).thenReturn("order_item_id");
+        when(exportedKeys.getString("PKCOLUMN_NAME")).thenReturn("order_id");
+        when(exportedKeys.getObject("UPDATE_RULE"))
+                .thenReturn(DatabaseMetaData.importedKeyRestrict);
+        when(exportedKeys.getObject("DELETE_RULE"))
+                .thenReturn(DatabaseMetaData.importedKeySetNull);
+
+        ToolResult result = execute("order_item");
+
+        assertTrue(result.success(), result.toString());
+        JsonNode content = objectMapper.readTree(result.content());
+        JsonNode imported = content.path("imported_foreign_keys").get(0);
+        assertTrue(imported.path("name").isNull());
+        assertEquals("orders", imported.path("referenced_table").asText());
+        assertEquals("order_id", imported.path("column_mappings").get(0).path("column").asText());
+        assertEquals("id", imported.path("column_mappings").get(0)
+                .path("referenced_column").asText());
+        assertEquals("line_no", imported.path("column_mappings").get(1).path("column").asText());
+        assertEquals("NO_ACTION", imported.path("update_rule").asText());
+        assertEquals("CASCADE", imported.path("delete_rule").asText());
+
+        JsonNode exported = content.path("exported_foreign_keys").get(0);
+        assertEquals("fk_shipment_order_item", exported.path("name").asText());
+        assertEquals("shipment_item", exported.path("referencing_table").asText());
+        assertEquals("order_item_id", exported.path("column_mappings").get(0)
+                .path("referencing_column").asText());
+        assertEquals("order_id", exported.path("column_mappings").get(0).path("column").asText());
+        assertEquals("order_item_id", exported.path("referencing_column").asText());
+        assertEquals("order_id", exported.path("column").asText());
+    }
+
+    @Test
+    void returnsOrderedIndexesAndReusesUniqueIndexes() throws Exception {
+        prepareOrdinaryTable("shop", null);
+        preparePrimaryKeys("shop", "id");
+        prepareColumns("shop", "id", "type_id", "area", "name");
+        org.mockito.Mockito.reset(indexes);
+        when(metadata.getIndexInfo(CATALOG, null, "shop", false, false)).thenReturn(indexes);
+        when(indexes.getString("TABLE_CAT")).thenAnswer(invocation -> CATALOG);
+        when(indexes.getString("TABLE_NAME")).thenAnswer(invocation -> "shop");
+        AtomicInteger indexRow = new AtomicInteger(-1);
+        when(indexes.next()).thenAnswer(invocation -> indexRow.incrementAndGet() < 4);
+        String[] indexNames = {null, "idx_type_area", "idx_type_area", "uk_shop_name"};
+        String[] indexColumns = {null, "area", "type_id", "name"};
+        int[] indexTypes = {
+                DatabaseMetaData.tableIndexStatistic,
+                DatabaseMetaData.tableIndexOther,
+                DatabaseMetaData.tableIndexOther,
+                DatabaseMetaData.tableIndexOther};
+        int[] positions = {0, 2, 1, 1};
+        boolean[] nonUnique = {true, true, true, false};
+        when(indexes.getObject("TYPE")).thenAnswer(invocation -> indexTypes[indexRow.get()]);
+        when(indexes.getString("INDEX_NAME")).thenAnswer(invocation -> indexNames[indexRow.get()]);
+        when(indexes.getString("COLUMN_NAME")).thenAnswer(invocation -> indexColumns[indexRow.get()]);
+        when(indexes.getObject("ORDINAL_POSITION")).thenAnswer(invocation -> positions[indexRow.get()]);
+        when(indexes.getBoolean("NON_UNIQUE")).thenAnswer(invocation -> nonUnique[indexRow.get()]);
+        when(indexes.wasNull()).thenReturn(false);
+
+        ToolResult result = execute("shop");
+
+        JsonNode content = objectMapper.readTree(result.content());
+        assertTrue(result.success(), result.toString());
+        assertEquals(2, content.path("indexes").size());
+        JsonNode composite = content.path("indexes").get(0);
+        assertEquals("idx_type_area", composite.path("name").asText());
+        assertEquals(List.of("type_id", "area"), List.of(
+                composite.path("columns").get(0).asText(),
+                composite.path("columns").get(1).asText()));
+        assertFalse(composite.path("unique").asBoolean());
+        assertEquals(1, content.path("unique_indexes").size());
+        assertEquals("uk_shop_name", content.path("unique_indexes").get(0).path("name").asText());
+        verify(metadata).getIndexInfo(CATALOG, null, "shop", false, false);
+    }
+
+    @Test
+    void keepsBaseMetadataAndReportsEnhancementWarnings() throws Exception {
+        prepareOrdinaryTable("post", "文章");
+        preparePrimaryKeys("post", "id");
+        prepareColumns("post", "id", "title");
+        when(metadata.getImportedKeys(CATALOG, null, "post"))
+                .thenThrow(new SQLException("foreign key password=secret"));
+        when(metadata.getExportedKeys(CATALOG, null, "post"))
+                .thenThrow(new SQLException("exported key password=secret"));
+        when(metadata.getIndexInfo(CATALOG, null, "post", false, false))
+                .thenThrow(new SQLException("index password=secret"));
+
+        ToolResult result = execute("post");
+
+        assertTrue(result.success(), result.toString());
+        JsonNode content = objectMapper.readTree(result.content());
+        assertEquals(2, content.path("columns").size());
+        assertEquals(List.of(
+                        "导入外键元信息不可用",
+                        "导出外键元信息不可用",
+                        "索引和唯一索引元信息不可用"),
+                java.util.stream.StreamSupport.stream(
+                                content.path("metadata_warnings").spliterator(), false)
+                        .map(JsonNode::asText)
+                        .toList());
+        assertFalse(result.content().contains("secret"));
+        assertTrue(content.path("imported_foreign_keys").isMissingNode());
+        assertTrue(content.path("indexes").isMissingNode());
     }
 
     @Test
@@ -241,6 +382,16 @@ class DescribeTableToolTest {
         when(connection.getCatalog()).thenReturn(CATALOG);
         when(connection.getMetaData()).thenReturn(metadata);
         when(metadata.getSearchStringEscape()).thenReturn("\\");
+        when(metadata.getImportedKeys(eq(CATALOG), isNull(), org.mockito.ArgumentMatchers.anyString()))
+                .thenReturn(importedKeys);
+        when(metadata.getExportedKeys(eq(CATALOG), isNull(), org.mockito.ArgumentMatchers.anyString()))
+                .thenReturn(exportedKeys);
+        when(metadata.getIndexInfo(eq(CATALOG), isNull(),
+                org.mockito.ArgumentMatchers.anyString(), eq(false), eq(false)))
+                .thenReturn(indexes);
+        when(importedKeys.next()).thenReturn(false);
+        when(exportedKeys.next()).thenReturn(false);
+        when(indexes.next()).thenReturn(false);
     }
 
     private void prepareOrdinaryTable(String tableName, String comment) throws SQLException {

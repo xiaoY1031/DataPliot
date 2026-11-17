@@ -32,6 +32,22 @@ qwen:
 
 harness:
   workspace: "F:/project"
+
 datapilot:
   skills-directory: ${DATAPILOT_SKILLS_DIR:skills}
-
+  database:
+    query:
+      max-result-bytes: ${DATAPILOT_DB_MAX_RESULT_BYTES:262144}
+    sensitive-fields:
+      deny:
+        - password
+        - passwd
+        - secret
+        - token
+        - salt
+        - api_key
+      mask:
+        - phone
+        - mobile
+        - email
+        - id_card

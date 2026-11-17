@@ -19,6 +19,7 @@ import java.sql.Types;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -75,6 +76,7 @@ class ExecuteReadonlySqlToolTest {
         JsonNode content = objectMapper.readTree(result.content());
         assertEquals(2, content.path("rowCount").asInt());
         assertFalse(content.path("truncated").asBoolean());
+        assertEquals(0, content.path("truncationReasons").size());
         assertEquals("id", content.path("columns").get(0).path("name").asText());
         assertEquals("BIGINT", content.path("columns").get(0).path("type").asText());
         assertEquals(10L, content.path("rows").get(0).path("id").asLong());
@@ -277,6 +279,7 @@ class ExecuteReadonlySqlToolTest {
         assertEquals(100, content.path("rowCount").asInt());
         assertEquals(100, content.path("rows").size());
         assertTrue(content.path("truncated").asBoolean());
+        assertEquals("ROW_LIMIT", content.path("truncationReasons").get(0).asText());
         verify(statement).setMaxRows(101);
     }
 
@@ -299,6 +302,185 @@ class ExecuteReadonlySqlToolTest {
         assertTrue(row.path("content").asText().endsWith("…[已截断]"));
         assertEquals("AQID", row.path("payload").asText());
         assertTrue(row.path("optional_value").isNull());
+        JsonNode content = objectMapper.readTree(result.content());
+        assertTrue(content.path("truncated").asBoolean());
+        assertEquals("FIELD_LENGTH_LIMIT",
+                content.path("truncationReasons").get(0).asText());
+    }
+
+    @Test
+    void limitsSerializedUtf8ResultSizeWithoutLoadingRemainingRows() throws Exception {
+        ExecuteReadonlySqlTool limitedTool = toolWithPolicy(360, Set.of(), Set.of());
+        prepareQuery();
+        defineColumns(new Column("content", Types.VARCHAR, "VARCHAR"));
+        when(resultSet.next()).thenReturn(true, true, true, false);
+        when(resultSet.getCharacterStream(1))
+                .thenReturn(new StringReader("中".repeat(70)))
+                .thenReturn(new StringReader("文".repeat(70)));
+
+        ToolResult result = execute(limitedTool, "SELECT content FROM post");
+
+        JsonNode content = objectMapper.readTree(result.content());
+        assertTrue(result.success(), result.toString());
+        assertTrue(content.path("truncated").asBoolean());
+        assertTrue(containsReason(content, "RESULT_SIZE_LIMIT"));
+        assertTrue(result.content().getBytes(java.nio.charset.StandardCharsets.UTF_8).length <= 360);
+        assertTrue(content.path("rowCount").asInt() < 3);
+        verify(resultSet, org.mockito.Mockito.atMost(2)).next();
+    }
+
+    @Test
+    void returnsLegalEmptyRowsWhenFirstRowExceedsResultBudget() throws Exception {
+        ExecuteReadonlySqlTool limitedTool = toolWithPolicy(190, Set.of(), Set.of());
+        prepareQuery();
+        defineColumns(new Column("content", Types.VARCHAR, "VARCHAR"));
+        when(resultSet.next()).thenReturn(true, true);
+        when(resultSet.getCharacterStream(1)).thenReturn(new StringReader("x".repeat(150)));
+
+        ToolResult result = execute(limitedTool, "SELECT content FROM post");
+
+        JsonNode content = objectMapper.readTree(result.content());
+        assertTrue(result.success(), result.toString());
+        assertEquals(0, content.path("rowCount").asInt());
+        assertEquals(0, content.path("rows").size());
+        assertTrue(containsReason(content, "RESULT_SIZE_LIMIT"));
+        assertTrue(result.content().getBytes(java.nio.charset.StandardCharsets.UTF_8).length <= 190);
+    }
+
+    @Test
+    void reportsMultipleTruncationReasonsOnlyOnce() throws Exception {
+        ExecuteReadonlySqlTool limitedTool = toolWithPolicy(420, Set.of(), Set.of());
+        prepareQuery();
+        defineColumns(new Column("content", Types.VARCHAR, "VARCHAR"));
+        AtomicInteger calls = new AtomicInteger();
+        when(resultSet.next()).thenAnswer(invocation -> calls.getAndIncrement() < 101);
+        when(resultSet.getCharacterStream(1)).thenReturn(
+                new StringReader("x".repeat(ExecuteReadonlySqlTool.MAX_TEXT_LENGTH + 20)));
+
+        ToolResult result = execute(limitedTool, "SELECT content FROM post");
+
+        JsonNode content = objectMapper.readTree(result.content());
+        assertTrue(content.path("truncated").asBoolean());
+        assertTrue(containsReason(content, "FIELD_LENGTH_LIMIT"));
+        assertTrue(containsReason(content, "RESULT_SIZE_LIMIT"));
+        assertEquals(content.path("truncationReasons").size(),
+                java.util.stream.StreamSupport.stream(
+                                content.path("truncationReasons").spliterator(), false)
+                        .map(JsonNode::asText)
+                        .distinct()
+                        .count());
+    }
+
+    @Test
+    void returnsStableEmptyResultWithoutTruncation() throws Exception {
+        prepareEmptyQuery();
+
+        ToolResult result = execute("SELECT id FROM post WHERE 1 = 0");
+
+        JsonNode content = objectMapper.readTree(result.content());
+        assertEquals(0, content.path("rowCount").asInt());
+        assertEquals(0, content.path("rows").size());
+        assertFalse(content.path("truncated").asBoolean());
+        assertEquals(0, content.path("truncationReasons").size());
+    }
+
+    @Test
+    void rejectsDeniedSensitiveFieldsIncludingAliasesTableAliasesAndJoins() throws Exception {
+        ExecuteReadonlySqlTool protectedTool = toolWithPolicy(
+                ExecuteReadonlySqlTool.DEFAULT_MAX_RESULT_BYTES,
+                Set.of("password"),
+                Set.of());
+
+        for (String sql : List.of(
+                "SELECT password FROM admin",
+                "SELECT password AS value FROM admin",
+                "SELECT a.password AS value FROM admin a",
+                "SELECT a.id, u.password FROM admin a JOIN user u ON u.id = a.user_id")) {
+            ToolResult result = execute(protectedTool, sql);
+            assertEquals("SQL_SAFETY_REJECTED", result.errorCode(), sql);
+        }
+        verifyNoInteractions(dataSource);
+    }
+
+    @Test
+    void protectsSensitiveFieldsThroughSubqueriesAndCtes() throws Exception {
+        ExecuteReadonlySqlTool protectedTool = toolWithPolicy(
+                ExecuteReadonlySqlTool.DEFAULT_MAX_RESULT_BYTES,
+                Set.of("password"),
+                Set.of());
+
+        ToolResult subquery = execute(protectedTool,
+                "SELECT x.value FROM (SELECT password AS value FROM admin) x");
+        ToolResult cte = execute(protectedTool,
+                "WITH secured AS (SELECT password AS value FROM admin) SELECT value FROM secured");
+        ToolResult renamedCte = execute(protectedTool,
+                "WITH secured(value) AS (SELECT password FROM admin) SELECT value FROM secured");
+
+        assertEquals("SQL_SAFETY_REJECTED", subquery.errorCode());
+        assertEquals("SQL_SAFETY_REJECTED", cte.errorCode());
+        assertEquals("SQL_SAFETY_REJECTED", renamedCte.errorCode());
+        verifyNoInteractions(dataSource);
+    }
+
+    @Test
+    void permitsCountButRejectsAggregatesThatCanReturnSensitiveValues() throws Exception {
+        ExecuteReadonlySqlTool protectedTool = toolWithPolicy(
+                ExecuteReadonlySqlTool.DEFAULT_MAX_RESULT_BYTES,
+                Set.of("password"),
+                Set.of());
+        prepareQuery();
+        defineColumns(new Column("total", Types.BIGINT, "BIGINT"));
+        when(resultSet.next()).thenReturn(true, false);
+        when(resultSet.getObject(1)).thenReturn(1L);
+
+        ToolResult count = execute(protectedTool, "SELECT COUNT(password) AS total FROM admin");
+        ToolResult max = execute(protectedTool, "SELECT MAX(password) AS value FROM admin");
+
+        assertTrue(count.success(), count.toString());
+        assertEquals("SQL_SAFETY_REJECTED", max.errorCode());
+    }
+
+    @Test
+    void masksConfirmedSourceColumnAndDenyWinsOnConfigurationConflict() throws Exception {
+        ExecuteReadonlySqlTool maskingTool = toolWithPolicy(
+                ExecuteReadonlySqlTool.DEFAULT_MAX_RESULT_BYTES,
+                Set.of(),
+                Set.of("phone"));
+        prepareQuery();
+        defineColumns(new Column("contact", Types.VARCHAR, "VARCHAR"));
+        when(resultSet.next()).thenReturn(true, false);
+        when(resultSet.getObject(1)).thenReturn("13800138000");
+
+        ToolResult masked = execute(maskingTool, "SELECT a.phone AS contact FROM admin a");
+
+        assertTrue(masked.success(), masked.toString());
+        assertEquals(SensitiveFieldPolicy.MASKED_VALUE,
+                objectMapper.readTree(masked.content()).path("rows").get(0).path("contact").asText());
+
+        ExecuteReadonlySqlTool conflictTool = toolWithPolicy(
+                ExecuteReadonlySqlTool.DEFAULT_MAX_RESULT_BYTES,
+                Set.of("phone"),
+                Set.of("phone"));
+        ToolResult conflict = execute(conflictTool, "SELECT phone FROM admin");
+        assertEquals("SQL_SAFETY_REJECTED", conflict.errorCode());
+    }
+
+    @Test
+    void ordinaryNonSensitiveFieldsRemainUnaffected() throws Exception {
+        ExecuteReadonlySqlTool protectedTool = toolWithPolicy(
+                ExecuteReadonlySqlTool.DEFAULT_MAX_RESULT_BYTES,
+                Set.of("password"),
+                Set.of("phone"));
+        prepareQuery();
+        defineColumns(new Column("name", Types.VARCHAR, "VARCHAR"));
+        when(resultSet.next()).thenReturn(true, false);
+        when(resultSet.getCharacterStream(1)).thenReturn(new StringReader("Alice"));
+
+        ToolResult result = execute(protectedTool, "SELECT name FROM admin");
+
+        assertTrue(result.success(), result.toString());
+        assertEquals("Alice", objectMapper.readTree(result.content())
+                .path("rows").get(0).path("name").asText());
     }
 
     @Test
@@ -357,8 +539,32 @@ class ExecuteReadonlySqlToolTest {
     }
 
     private ToolResult execute(String sql) {
+        return execute(tool, sql);
+    }
+
+    private ToolResult execute(ExecuteReadonlySqlTool targetTool, String sql) {
         String arguments = objectMapper.createObjectNode().put("sql", sql).toString();
-        return executor.execute("call_execute_sql", "execute_readonly_sql", arguments);
+        ToolExecutor targetExecutor = targetTool == tool
+                ? executor
+                : new ToolExecutor(new ToolRegistry(List.of(targetTool)), objectMapper);
+        return targetExecutor.execute("call_execute_sql", "execute_readonly_sql", arguments);
+    }
+
+    private ExecuteReadonlySqlTool toolWithPolicy(
+            int maxResultBytes,
+            Set<String> denied,
+            Set<String> masked) {
+        return new ExecuteReadonlySqlTool(
+                dataSource,
+                objectMapper,
+                SensitiveFieldPolicy.of(denied, masked),
+                new DatabaseResultSetMapper(objectMapper, maxResultBytes));
+    }
+
+    private boolean containsReason(JsonNode content, String reason) {
+        return java.util.stream.StreamSupport.stream(
+                        content.path("truncationReasons").spliterator(), false)
+                .anyMatch(value -> reason.equals(value.asText()));
     }
 
     private void prepareConnectionOnly() throws SQLException {
