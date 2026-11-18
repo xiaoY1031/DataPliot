@@ -158,21 +158,70 @@ class AgentLoopTest {
     }
 
     @Test
-    void stopsAfterTenModelRequests() {
+    void entersFinalizationAfterTenRequestsAndCanReturnAnswer() {
         Fixture fixture = fixture("循环任务");
-        when(fixture.client.complete(any())).thenReturn(new LlmResponse(
-                LlmMessage.assistant(null, List.of(
-                        new LlmToolCall("call_1", "function", "get_project_info", "{}"))),
-                "tool_calls"));
+        AtomicInteger requestCount = new AtomicInteger();
+        when(fixture.client.complete(any())).thenAnswer(invocation -> {
+            LlmRequest request = invocation.getArgument(0);
+            int callNo = requestCount.incrementAndGet();
+            if (callNo <= 10) {
+                return toolCallResponse();
+            }
+            assertEquals(1, request.toolDefinitions().size());
+            assertThat(finalizationInstruction(request),
+                    containsString("最多还剩 5 次模型调用"));
+            return response("基于已有结果完成");
+        });
+        when(fixture.executor.execute("call_1", "get_project_info", "{}"))
+                .thenReturn(ToolResult.success("项目信息"));
+
+        assertEquals("基于已有结果完成", fixture.loop.run(fixture.task, "循环任务"));
+        assertEquals(11, fixture.task.modelRequestCount());
+        verify(fixture.client, times(11)).complete(any());
+        verify(fixture.executor, times(10))
+                .execute("call_1", "get_project_info", "{}");
+    }
+
+    @Test
+    void forcesFifteenthRequestToReturnWithoutTools() {
+        Fixture fixture = fixture("循环任务");
+        AtomicInteger requestCount = new AtomicInteger();
+        when(fixture.client.complete(any())).thenAnswer(invocation -> {
+            LlmRequest request = invocation.getArgument(0);
+            int callNo = requestCount.incrementAndGet();
+            if (callNo < 15) {
+                return toolCallResponse();
+            }
+            assertEquals(List.of(), request.toolDefinitions());
+            assertThat(finalizationInstruction(request),
+                    containsString("不得调用任何工具"));
+            return response("最终收尾答案");
+        });
+        when(fixture.executor.execute("call_1", "get_project_info", "{}"))
+                .thenReturn(ToolResult.success("项目信息"));
+
+        assertEquals("最终收尾答案", fixture.loop.run(fixture.task, "循环任务"));
+        assertEquals(15, fixture.task.modelRequestCount());
+        verify(fixture.client, times(15)).complete(any());
+        verify(fixture.executor, times(14))
+                .execute("call_1", "get_project_info", "{}");
+    }
+
+    @Test
+    void rejectsToolCallReturnedDuringForcedFinalization() {
+        Fixture fixture = fixture("循环任务");
+        when(fixture.client.complete(any())).thenReturn(toolCallResponse());
         when(fixture.executor.execute("call_1", "get_project_info", "{}"))
                 .thenReturn(ToolResult.success("项目信息"));
 
         var error = assertThrows(IllegalStateException.class,
                 () -> fixture.loop.run(fixture.task, "循环任务"));
 
-        assertEquals("Agent 超过最大循环次数 10 轮", error.getMessage());
-        assertEquals(10, fixture.task.modelRequestCount());
-        verify(fixture.client, times(10)).complete(any());
+        assertEquals("模型在最终收尾调用中仍请求工具，未能生成最终答案", error.getMessage());
+        assertEquals(15, fixture.task.modelRequestCount());
+        verify(fixture.client, times(15)).complete(any());
+        verify(fixture.executor, times(14))
+                .execute("call_1", "get_project_info", "{}");
     }
 
     private Fixture fixture() {
@@ -207,6 +256,23 @@ class AgentLoopTest {
 
     private LlmResponse response(String content) {
         return new LlmResponse(LlmMessage.assistant(content, List.of()), "stop");
+    }
+
+    private LlmResponse toolCallResponse() {
+        return new LlmResponse(
+                LlmMessage.assistant(null, List.of(
+                        new LlmToolCall("call_1", "function", "get_project_info", "{}"))),
+                "tool_calls");
+    }
+
+    private String finalizationInstruction(LlmRequest request) {
+        return request.messages().stream()
+                .filter(message -> message.role() == LlmMessage.Role.SYSTEM)
+                .map(LlmMessage::content)
+                .filter(content -> content != null
+                        && (content.contains("收尾阶段") || content.contains("最后一次模型调用")))
+                .findFirst()
+                .orElseThrow();
     }
 
     private record Fixture(

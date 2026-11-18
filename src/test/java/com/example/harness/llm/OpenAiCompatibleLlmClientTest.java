@@ -127,6 +127,28 @@ class OpenAiCompatibleLlmClientTest {
     }
 
     @Test
+    void omitsToolFieldsWhenNoToolsAreAvailable() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        OpenAiCompatibleLlmClient client = createClient(builder);
+
+        server.expect(requestTo("https://example.test/v1/chat/completions"))
+                .andExpect(jsonPath("$.tools").doesNotExist())
+                .andExpect(jsonPath("$.tool_choice").doesNotExist())
+                .andRespond(withSuccess("""
+                        {"choices":[{"finish_reason":"stop",
+                        "message":{"role":"assistant","content":"最终答案"}}]}
+                        """, MediaType.APPLICATION_JSON));
+
+        var response = client.complete(new LlmRequest(
+                List.of(LlmMessage.user("直接回答")),
+                List.of()));
+
+        assertEquals("最终答案", response.assistantMessage().content());
+        server.verify();
+    }
+
+    @Test
     void rejectsInvalidCompatibleResponse() {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();

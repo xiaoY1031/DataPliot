@@ -52,8 +52,12 @@ public class OpenAiCompatibleLlmClient implements LlmClient {
         Map<String, Object> requestBody = new LinkedHashMap<>();
         requestBody.put("model", model);
         requestBody.put("messages", request.messages().stream().map(this::toApiMessage).toList());
-        requestBody.put("tools", request.toolDefinitions().stream().map(this::toFunctionTool).toList());
-        requestBody.put("tool_choice", "auto");
+        if (!request.toolDefinitions().isEmpty()) {
+            requestBody.put("tools", request.toolDefinitions().stream()
+                    .map(this::toFunctionTool)
+                    .toList());
+            requestBody.put("tool_choice", "auto");
+        }
 
         JsonNode response = restClient.post()
                 .uri("/chat/completions")
