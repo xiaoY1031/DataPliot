@@ -51,3 +51,20 @@ datapilot:
         - mobile
         - email
         - id_card
+  chart:
+    enabled: ${DATAPILOT_CHART_ENABLED:false}
+    output-directory: ${DATAPILOT_CHART_DIR:}
+    timeout-seconds: ${DATAPILOT_CHART_TIMEOUT_SECONDS:15}
+    query-timeout-seconds: ${DATAPILOT_CHART_QUERY_TIMEOUT_SECONDS:10}
+    max-input-rows: ${DATAPILOT_CHART_MAX_INPUT_ROWS:5000}
+    max-input-bytes: ${DATAPILOT_CHART_MAX_INPUT_BYTES:5242880}
+    max-stdout-bytes: ${DATAPILOT_CHART_MAX_STDOUT_BYTES:65536}
+    max-stderr-bytes: ${DATAPILOT_CHART_MAX_STDERR_BYTES:65536}
+    max-image-bytes: ${DATAPILOT_CHART_MAX_IMAGE_BYTES:2097152}
+    max-width: ${DATAPILOT_CHART_MAX_WIDTH:2400}
+    max-height: ${DATAPILOT_CHART_MAX_HEIGHT:1600}
+    retention-hours: ${DATAPILOT_CHART_RETENTION_HOURS:24}
+    max-artifacts: ${DATAPILOT_CHART_MAX_ARTIFACTS:200}
+    max-categories: ${DATAPILOT_CHART_MAX_CATEGORIES:50}
+    max-series: ${DATAPILOT_CHART_MAX_SERIES:12}
+    max-points: ${DATAPILOT_CHART_MAX_POINTS:2000}

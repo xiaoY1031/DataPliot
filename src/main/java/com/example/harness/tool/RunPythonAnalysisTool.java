@@ -28,7 +28,7 @@ public class RunPythonAnalysisTool implements AgentTool {
                                     "description", "为 Python 准备完整分析数据的一条只读 SELECT 或 WITH 查询"),
                             "code", Map.of(
                                     "type", "string",
-                                    "description", "使用预置 df、pd、np、stats 的 Python 代码，最终必须将 JSON 对象赋给 result")),
+                                    "description", "禁止 import；使用已预置的 df、pd、np、stats、Decimal，最终必须将 JSON 对象赋给 result")),
                     "required", List.of("sql", "code"),
                     "additionalProperties", false));
 
