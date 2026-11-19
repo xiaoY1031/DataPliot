@@ -17,7 +17,7 @@ public class GenerateChartTool implements AgentTool {
 
     private static final ToolDefinition DEFINITION = new ToolDefinition(
             "generate_chart",
-            "使用当前数据库的完整只读查询结果生成真实 PNG 图表。聚合、排序和 Top N 必须在 SQL 中完成；series 是类别分组维度，不是数值字段",
+            "使用当前数据库的完整只读查询结果生成真实 PNG 图表。用户明确要求图表、可视化或带图报告时应使用；即使用户未明确要求，当时间趋势、多个类别比较、总体分布或数值关系用图表能明显改善理解时也可主动使用。单个数字、简单列表、少量数值或仅装饰性展示不应调用。聚合、排序和 Top N 必须在 SQL 中完成；series 是类别分组维度，不是数值字段",
             Map.of(
                     "type", "object",
                     "properties", Map.of(

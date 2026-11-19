@@ -45,6 +45,9 @@ class GenerateChartToolTest {
         assertEquals(List.of("sql", "chart_type", "title"),
                 definition.parameters().get("required"));
         assertEquals(false, definition.parameters().get("additionalProperties"));
+        assertTrue(definition.description().contains("用户明确要求图表"));
+        assertTrue(definition.description().contains("时间趋势、多个类别比较、总体分布或数值关系"));
+        assertTrue(definition.description().contains("单个数字、简单列表"));
         Map<?, ?> fields = (Map<?, ?>) definition.parameters().get("properties");
         assertTrue(((String) ((Map<?, ?>) fields.get("series")).get("description"))
                 .contains("类别分组维度"));
