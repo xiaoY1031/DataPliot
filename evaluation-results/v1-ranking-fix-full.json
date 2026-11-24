@@ -1,0 +1,1250 @@
+{
+  "schemaVersion": "1.0",
+  "evaluationRunId": "d753c5c6-1492-41d7-befc-f57090c138ae",
+  "metadata": {
+    "evaluationRunId": "d753c5c6-1492-41d7-befc-f57090c138ae",
+    "startedAt": "2026-11-24T19:44:30.0096991+08:00",
+    "completedAt": "2026-11-24T19:44:56.2543648+08:00",
+    "gitCommitHash": "f5dc1aac9ac0b40a9d97c7df3fc0ef5b2856f1f1",
+    "gitCommitStatus": "AVAILABLE",
+    "gitCommitError": null,
+    "gitCommitExitCode": 0,
+    "systemPromptSha256": "5e359dec18ca1820513bea9266a47f6d2a8885a057f188fe7a3c49e934441dfe",
+    "dataAnalysisSkillSha256": "038099374303937412c25a899137747a6fb4ed7676ac94405f0ad0676d5c5aeb",
+    "modelName": "deepseek-flash",
+    "baseUri": "http://localhost:8084",
+    "databaseIdentifier": "mysql://localhost:3306/hmdp"
+  },
+  "databaseFingerprint": {
+    "algorithm": "datapilot-canonical-row-v1",
+    "databaseIdentifier": "mysql://localhost:3306/hmdp",
+    "baselineReady": true,
+    "allMatch": true,
+    "tables": [
+      {
+        "table": "tb_shop",
+        "fields": [
+          "id",
+          "name",
+          "type_id",
+          "avg_price",
+          "sold",
+          "comments",
+          "score"
+        ],
+        "primaryKey": [
+          "id"
+        ],
+        "rowCount": 30,
+        "expectedSha256": "e2e51c1916efc4903b7b890dc1eec997311d90af8c582b494a317359bcaa887b",
+        "actualSha256": "e2e51c1916efc4903b7b890dc1eec997311d90af8c582b494a317359bcaa887b",
+        "matches": true
+      },
+      {
+        "table": "tb_shop_type",
+        "fields": [
+          "id",
+          "name",
+          "sort"
+        ],
+        "primaryKey": [
+          "id"
+        ],
+        "rowCount": 10,
+        "expectedSha256": "54870e3f9db333a9964dc51e7401a623bee4abe7ae777652cb1852ff8e3bd03d",
+        "actualSha256": "54870e3f9db333a9964dc51e7401a623bee4abe7ae777652cb1852ff8e3bd03d",
+        "matches": true
+      }
+    ]
+  },
+  "comparabilityStatus": "COMPARABLE",
+  "runStatus": "COMPLETED",
+  "summary": {
+    "totalCases": 3,
+    "passedCases": 3,
+    "needsManualReview": 0,
+    "failedCases": 0,
+    "automaticAssertions": 17,
+    "passedAssertions": 17,
+    "assertionPassRate": 1.0
+  },
+  "cases": [
+    {
+      "caseId": "shop-count",
+      "name": "店铺总数",
+      "prompt": "当前数据库中一共有多少家店铺？请给出店铺总数，并说明统计口径。",
+      "gold": {
+        "shop_count": 30,
+        "distinct_shop_id_count": 30,
+        "distinct_shop_name_count": 30,
+        "counting_scope": "tb_shop 表记录数；店铺 ID 和店铺名称分别去重后也均为 30。"
+      },
+      "finalAnswer": "## 结论\n\n当前数据库中共有 **30 家店铺**。\n\n## 统计口径说明\n\n| 项目 | 说明 |\n|---|---|\n| 数据来源 | `tb_shop` 表（店铺主表），每行代表一家店铺 |\n| 统计方法 | `COUNT(*)`，即表中记录行数 |\n| 单位 | 店铺主记录数（1 行 = 1 家店铺） |\n| 筛选条件 | 无，统计全表全部记录，未按分类、地区或营业状态过滤 |\n| 去重校验 | 主键 `id` 唯一：总行数 30、去重 id 数 30、去重店名数 30，三者一致，不存在重复记录或同一店名多条记录的情况 |\n\n## 说明与限制\n\n- `tb_shop` 表无店铺状态（如营业/关闭、上架/下架）字段，因此这里的 30 家是**库内登记的全部店铺记录数**，无法区分其中是否有已停业或无效店铺。\n- 30 也是独立店铺名的数量，即不存在因同名导致的口径差异。",
+      "http": {
+        "success": true,
+        "statusCode": 200,
+        "elapsedMs": 4986,
+        "taskId": "8f47a5c1-07fa-42f8-bb20-76b2bd1d8628",
+        "turnId": "5d03703e-c663-4bbf-9ed3-b19ffe027087",
+        "error": null
+      },
+      "assertions": {
+        "assertionId": "shop-count-value",
+        "description": "回答明确表达店铺数量为 30，而不是仅出现无关数字 30。",
+        "status": "PASSED",
+        "passed": true,
+        "actual": {
+          "context": "当前数据库中共有 30 家店铺。",
+          "raw": "30 家",
+          "value": 30.0
+        },
+        "expected": 30.0,
+        "failureReason": ""
+      },
+      "status": "PASSED"
+    },
+    {
+      "caseId": "shop-category-distribution",
+      "name": "店铺分类数量、占比与 Top 2",
+      "prompt": "分析当前数据库中不同分类的店铺数量和占比，并找出数量最多的两个分类。请说明总店铺数、各分类数量与占比，以及 Top 2 的合计数量和占比。",
+      "gold": {
+        "total_shops": 30,
+        "categories": [
+          {
+            "typeId": 1,
+            "typeName": "美食",
+            "count": 9,
+            "percentage": 30.0,
+            "competitionRank": 1
+          },
+          {
+            "typeId": 2,
+            "typeName": "KTV",
+            "count": 5,
+            "percentage": 16.67,
+            "competitionRank": 2
+          },
+          {
+            "typeId": 3,
+            "typeName": "丽人·美发",
+            "count": 2,
+            "percentage": 6.67,
+            "competitionRank": 3
+          },
+          {
+            "typeId": 4,
+            "typeName": "健身运动",
+            "count": 2,
+            "percentage": 6.67,
+            "competitionRank": 3
+          },
+          {
+            "typeId": 5,
+            "typeName": "按摩·足疗",
+            "count": 2,
+            "percentage": 6.67,
+            "competitionRank": 3
+          },
+          {
+            "typeId": 6,
+            "typeName": "美容SPA",
+            "count": 2,
+            "percentage": 6.67,
+            "competitionRank": 3
+          },
+          {
+            "typeId": 7,
+            "typeName": "亲子游乐",
+            "count": 2,
+            "percentage": 6.67,
+            "competitionRank": 3
+          },
+          {
+            "typeId": 8,
+            "typeName": "酒吧",
+            "count": 2,
+            "percentage": 6.67,
+            "competitionRank": 3
+          },
+          {
+            "typeId": 9,
+            "typeName": "轰趴馆",
+            "count": 2,
+            "percentage": 6.67,
+            "competitionRank": 3
+          },
+          {
+            "typeId": 10,
+            "typeName": "美睫·美甲",
+            "count": 2,
+            "percentage": 6.67,
+            "competitionRank": 3
+          }
+        ],
+        "top2": [
+          "美食",
+          "KTV"
+        ],
+        "top2_count": 14,
+        "top2_percentage": 46.67,
+        "rounding_note": "分类占比按总店铺数 30 计算并四舍五入到两位小数；各分类展示占比之和可能因四舍五入不严格等于 100.00%。"
+      },
+      "finalAnswer": "## 分析结果\n\n### 数据来源与统计口径\n- 表：`tb_shop`（店铺，一行一家店，主键 `id`）关联 `tb_shop_type`（店铺分类字典，一行一个分类）\n- 关联条件：`tb_shop.type_id = tb_shop_type.id`（通过 `foreign_key_type` 索引 + 实际查询验证）\n- **总店铺数：30 家**（`COUNT(*)`=30，去重 `id` 后仍为 30，无重复行；30 家店的 `type_id` 全部能在分类表匹配，无分类缺失或悬空）\n- 分类字典共 10 个分类，每个分类均有店铺，无 0 店铺分类\n\n### 各分类店铺数量与占比（占比 = 该分类店铺数 / 30）\n\n| 排名 | 分类 | 店铺数 | 占比 |\n|---|---|---|---|\n| 1 | 美食 | 9 | 30.00% |\n| 2 | KTV | 5 | 16.67% |\n| 3 | 丽人·美发 | 2 | 6.67% |\n| 3 | 健身运动 | 2 | 6.67% |\n| 3 | 按摩·足疗 | 2 | 6.67% |\n| 3 | 美容SPA | 2 | 6.67% |\n| 3 | 亲子游乐 | 2 | 6.67% |\n| 3 | 酒吧 | 2 | 6.67% |\n| 3 | 轰趴馆 | 2 | 6.67% |\n| 3 | 美睫·美甲 | 2 | 6.67% |\n| **合计** | — | **30** | **100.00%** |\n\n排名采用竞赛排名（`RANK()`）：8 个分类店铺数同为 2，并列第 3，其后无第 4 名。\n\n### 数量最多的两个分类（Top 2）\n- **美食**：9 家，30.00%\n- **KTV**：5 家，16.67%\n- **Top 2 合计：14 家，占 46.67%**（14/30）\n\n### 说明与限制\n- 本次统计为当前表内全量快照，`tb_shop` 无状态/删除标记字段，因此未做任何状态过滤；若业务上存在“已下线店铺”等其他口径，需另行确认字段。\n- 数量呈明显的两极分布：第 1、2 名（9 家、5 家）之外，其余 8 个分类均为 2 家，样本仅 30 家，占比数值不宜推广到更大范围。\n- 排行榜中的合计（30）与占比（100%）已与各分类明细核对一致。",
+      "http": {
+        "success": true,
+        "statusCode": 200,
+        "elapsedMs": 8969,
+        "taskId": "96094126-2e54-4a57-97a8-d80c4a928538",
+        "turnId": "ba97ddb2-5619-44b5-a1fd-3c37563caa87",
+        "error": null
+      },
+      "assertions": [
+        {
+          "assertionId": "category-total",
+          "description": "总店铺数为 30。",
+          "status": "PASSED",
+          "passed": true,
+          "actual": {
+            "context": "- 总店铺数：30 家（`COUNT(*)`=30，去重 `id` 后仍为 30，无重复行；30 家店的 `type_id` 全部能在分类表匹配，无分类缺失或悬空）",
+            "raw": "30 家",
+            "value": 30.0
+          },
+          "expected": 30.0,
+          "failureReason": ""
+        },
+        {
+          "assertionId": "food-count-share",
+          "description": "美食为 9 家，占 30.00%。",
+          "status": "PASSED",
+          "passed": true,
+          "actual": [
+            {
+              "name": "美食",
+              "contexts": [
+                "| 1 | 美食 | 9 | 30.00% |",
+                "- 美食：9 家，30.00%"
+              ],
+              "metrics": [
+                {
+                  "expected": 9.0,
+                  "valueType": "number",
+                  "matched": true,
+                  "observed": [
+                    1.0,
+                    9.0
+                  ]
+                },
+                {
+                  "expected": 30.0,
+                  "valueType": "percentage",
+                  "matched": true,
+                  "observed": [
+                    30.0
+                  ]
+                }
+              ]
+            }
+          ],
+          "expected": [
+            {
+              "name": "美食",
+              "aliases": [
+                "美食类"
+              ],
+              "metrics": [
+                {
+                  "expected": 9,
+                  "valueType": "number",
+                  "absoluteTolerance": 0
+                },
+                {
+                  "expected": 30.0,
+                  "valueType": "percentage",
+                  "absoluteTolerance": 0.01
+                }
+              ]
+            }
+          ],
+          "failureReason": ""
+        },
+        {
+          "assertionId": "ktv-count-share",
+          "description": "KTV 为 5 家，占 16.67%。",
+          "status": "PASSED",
+          "passed": true,
+          "actual": [
+            {
+              "name": "KTV",
+              "contexts": [
+                "| 2 | KTV | 5 | 16.67% |",
+                "- KTV：5 家，16.67%"
+              ],
+              "metrics": [
+                {
+                  "expected": 5.0,
+                  "valueType": "number",
+                  "matched": true,
+                  "observed": [
+                    2.0,
+                    5.0
+                  ]
+                },
+                {
+                  "expected": 16.67,
+                  "valueType": "percentage",
+                  "matched": true,
+                  "observed": [
+                    16.67
+                  ]
+                }
+              ]
+            }
+          ],
+          "expected": [
+            {
+              "name": "KTV",
+              "aliases": [
+                "KTV类",
+                "KTV 类"
+              ],
+              "metrics": [
+                {
+                  "expected": 5,
+                  "valueType": "number",
+                  "absoluteTolerance": 0
+                },
+                {
+                  "expected": 16.67,
+                  "valueType": "percentage",
+                  "absoluteTolerance": 0.02
+                }
+              ]
+            }
+          ],
+          "failureReason": ""
+        },
+        {
+          "assertionId": "remaining-category-counts",
+          "description": "其余八个分类的店铺数均为 2。",
+          "status": "PASSED",
+          "passed": true,
+          "actual": [
+            {
+              "name": "丽人·美发",
+              "contexts": [
+                "| 3 | 丽人·美发 | 2 | 6.67% |"
+              ],
+              "metrics": [
+                {
+                  "expected": 2.0,
+                  "valueType": "number",
+                  "matched": true,
+                  "observed": [
+                    3.0,
+                    2.0
+                  ]
+                }
+              ]
+            },
+            {
+              "name": "健身运动",
+              "contexts": [
+                "| 3 | 健身运动 | 2 | 6.67% |"
+              ],
+              "metrics": [
+                {
+                  "expected": 2.0,
+                  "valueType": "number",
+                  "matched": true,
+                  "observed": [
+                    3.0,
+                    2.0
+                  ]
+                }
+              ]
+            },
+            {
+              "name": "按摩·足疗",
+              "contexts": [
+                "| 3 | 按摩·足疗 | 2 | 6.67% |"
+              ],
+              "metrics": [
+                {
+                  "expected": 2.0,
+                  "valueType": "number",
+                  "matched": true,
+                  "observed": [
+                    3.0,
+                    2.0
+                  ]
+                }
+              ]
+            },
+            {
+              "name": "美容SPA",
+              "contexts": [
+                "| 3 | 美容SPA | 2 | 6.67% |"
+              ],
+              "metrics": [
+                {
+                  "expected": 2.0,
+                  "valueType": "number",
+                  "matched": true,
+                  "observed": [
+                    3.0,
+                    2.0
+                  ]
+                }
+              ]
+            },
+            {
+              "name": "亲子游乐",
+              "contexts": [
+                "| 3 | 亲子游乐 | 2 | 6.67% |"
+              ],
+              "metrics": [
+                {
+                  "expected": 2.0,
+                  "valueType": "number",
+                  "matched": true,
+                  "observed": [
+                    3.0,
+                    2.0
+                  ]
+                }
+              ]
+            },
+            {
+              "name": "酒吧",
+              "contexts": [
+                "| 3 | 酒吧 | 2 | 6.67% |"
+              ],
+              "metrics": [
+                {
+                  "expected": 2.0,
+                  "valueType": "number",
+                  "matched": true,
+                  "observed": [
+                    3.0,
+                    2.0
+                  ]
+                }
+              ]
+            },
+            {
+              "name": "轰趴馆",
+              "contexts": [
+                "| 3 | 轰趴馆 | 2 | 6.67% |"
+              ],
+              "metrics": [
+                {
+                  "expected": 2.0,
+                  "valueType": "number",
+                  "matched": true,
+                  "observed": [
+                    3.0,
+                    2.0
+                  ]
+                }
+              ]
+            },
+            {
+              "name": "美睫·美甲",
+              "contexts": [
+                "| 3 | 美睫·美甲 | 2 | 6.67% |"
+              ],
+              "metrics": [
+                {
+                  "expected": 2.0,
+                  "valueType": "number",
+                  "matched": true,
+                  "observed": [
+                    3.0,
+                    2.0
+                  ]
+                }
+              ]
+            }
+          ],
+          "expected": [
+            {
+              "name": "丽人·美发",
+              "aliases": [
+                "丽人美发",
+                "丽人/美发"
+              ],
+              "metrics": [
+                {
+                  "expected": 2,
+                  "valueType": "number",
+                  "absoluteTolerance": 0
+                }
+              ]
+            },
+            {
+              "name": "健身运动",
+              "aliases": [
+                "健身"
+              ],
+              "metrics": [
+                {
+                  "expected": 2,
+                  "valueType": "number",
+                  "absoluteTolerance": 0
+                }
+              ]
+            },
+            {
+              "name": "按摩·足疗",
+              "aliases": [
+                "按摩足疗",
+                "按摩/足疗"
+              ],
+              "metrics": [
+                {
+                  "expected": 2,
+                  "valueType": "number",
+                  "absoluteTolerance": 0
+                }
+              ]
+            },
+            {
+              "name": "美容SPA",
+              "aliases": [
+                "美容 SPA",
+                "美容spa"
+              ],
+              "metrics": [
+                {
+                  "expected": 2,
+                  "valueType": "number",
+                  "absoluteTolerance": 0
+                }
+              ]
+            },
+            {
+              "name": "亲子游乐",
+              "aliases": [
+                "亲子"
+              ],
+              "metrics": [
+                {
+                  "expected": 2,
+                  "valueType": "number",
+                  "absoluteTolerance": 0
+                }
+              ]
+            },
+            {
+              "name": "酒吧",
+              "aliases": [],
+              "metrics": [
+                {
+                  "expected": 2,
+                  "valueType": "number",
+                  "absoluteTolerance": 0
+                }
+              ]
+            },
+            {
+              "name": "轰趴馆",
+              "aliases": [
+                "轰趴"
+              ],
+              "metrics": [
+                {
+                  "expected": 2,
+                  "valueType": "number",
+                  "absoluteTolerance": 0
+                }
+              ]
+            },
+            {
+              "name": "美睫·美甲",
+              "aliases": [
+                "美睫美甲",
+                "美睫/美甲"
+              ],
+              "metrics": [
+                {
+                  "expected": 2,
+                  "valueType": "number",
+                  "absoluteTolerance": 0
+                }
+              ]
+            }
+          ],
+          "failureReason": ""
+        },
+        {
+          "assertionId": "category-count-ranks",
+          "description": "分类名称、店铺数量和竞赛排名正确；其余八类必须全部并列第 3。",
+          "status": "PASSED",
+          "passed": true,
+          "actual": [
+            {
+              "name": "美食",
+              "expectedCount": 9,
+              "expectedRank": 1,
+              "evidence": [
+                {
+                  "name": "美食",
+                  "source": "markdownTable",
+                  "context": "| 1 | 美食 | 9 | 30.00% |",
+                  "count": 9,
+                  "rank": 1,
+                  "structured": true
+                }
+              ],
+              "matched": true
+            },
+            {
+              "name": "KTV",
+              "expectedCount": 5,
+              "expectedRank": 2,
+              "evidence": [
+                {
+                  "name": "KTV",
+                  "source": "markdownTable",
+                  "context": "| 2 | KTV | 5 | 16.67% |",
+                  "count": 5,
+                  "rank": 2,
+                  "structured": true
+                }
+              ],
+              "matched": true
+            },
+            {
+              "name": "丽人·美发",
+              "expectedCount": 2,
+              "expectedRank": 3,
+              "evidence": [
+                {
+                  "name": "丽人·美发",
+                  "source": "markdownTable",
+                  "context": "| 3 | 丽人·美发 | 2 | 6.67% |",
+                  "count": 2,
+                  "rank": 3,
+                  "structured": true
+                }
+              ],
+              "matched": true
+            },
+            {
+              "name": "健身运动",
+              "expectedCount": 2,
+              "expectedRank": 3,
+              "evidence": [
+                {
+                  "name": "健身运动",
+                  "source": "markdownTable",
+                  "context": "| 3 | 健身运动 | 2 | 6.67% |",
+                  "count": 2,
+                  "rank": 3,
+                  "structured": true
+                }
+              ],
+              "matched": true
+            },
+            {
+              "name": "按摩·足疗",
+              "expectedCount": 2,
+              "expectedRank": 3,
+              "evidence": [
+                {
+                  "name": "按摩·足疗",
+                  "source": "markdownTable",
+                  "context": "| 3 | 按摩·足疗 | 2 | 6.67% |",
+                  "count": 2,
+                  "rank": 3,
+                  "structured": true
+                }
+              ],
+              "matched": true
+            },
+            {
+              "name": "美容SPA",
+              "expectedCount": 2,
+              "expectedRank": 3,
+              "evidence": [
+                {
+                  "name": "美容SPA",
+                  "source": "markdownTable",
+                  "context": "| 3 | 美容SPA | 2 | 6.67% |",
+                  "count": 2,
+                  "rank": 3,
+                  "structured": true
+                }
+              ],
+              "matched": true
+            },
+            {
+              "name": "亲子游乐",
+              "expectedCount": 2,
+              "expectedRank": 3,
+              "evidence": [
+                {
+                  "name": "亲子游乐",
+                  "source": "markdownTable",
+                  "context": "| 3 | 亲子游乐 | 2 | 6.67% |",
+                  "count": 2,
+                  "rank": 3,
+                  "structured": true
+                }
+              ],
+              "matched": true
+            },
+            {
+              "name": "酒吧",
+              "expectedCount": 2,
+              "expectedRank": 3,
+              "evidence": [
+                {
+                  "name": "酒吧",
+                  "source": "markdownTable",
+                  "context": "| 3 | 酒吧 | 2 | 6.67% |",
+                  "count": 2,
+                  "rank": 3,
+                  "structured": true
+                }
+              ],
+              "matched": true
+            },
+            {
+              "name": "轰趴馆",
+              "expectedCount": 2,
+              "expectedRank": 3,
+              "evidence": [
+                {
+                  "name": "轰趴馆",
+                  "source": "markdownTable",
+                  "context": "| 3 | 轰趴馆 | 2 | 6.67% |",
+                  "count": 2,
+                  "rank": 3,
+                  "structured": true
+                }
+              ],
+              "matched": true
+            },
+            {
+              "name": "美睫·美甲",
+              "expectedCount": 2,
+              "expectedRank": 3,
+              "evidence": [
+                {
+                  "name": "美睫·美甲",
+                  "source": "markdownTable",
+                  "context": "| 3 | 美睫·美甲 | 2 | 6.67% |",
+                  "count": 2,
+                  "rank": 3,
+                  "structured": true
+                }
+              ],
+              "matched": true
+            }
+          ],
+          "expected": [
+            {
+              "name": "美食",
+              "aliases": [
+                "美食类"
+              ],
+              "expectedCount": 9,
+              "expectedRank": 1
+            },
+            {
+              "name": "KTV",
+              "aliases": [
+                "KTV类",
+                "KTV 类"
+              ],
+              "expectedCount": 5,
+              "expectedRank": 2
+            },
+            {
+              "name": "丽人·美发",
+              "aliases": [
+                "丽人美发",
+                "丽人/美发"
+              ],
+              "expectedCount": 2,
+              "expectedRank": 3
+            },
+            {
+              "name": "健身运动",
+              "aliases": [
+                "健身"
+              ],
+              "expectedCount": 2,
+              "expectedRank": 3
+            },
+            {
+              "name": "按摩·足疗",
+              "aliases": [
+                "按摩足疗",
+                "按摩/足疗"
+              ],
+              "expectedCount": 2,
+              "expectedRank": 3
+            },
+            {
+              "name": "美容SPA",
+              "aliases": [
+                "美容 SPA",
+                "美容spa"
+              ],
+              "expectedCount": 2,
+              "expectedRank": 3
+            },
+            {
+              "name": "亲子游乐",
+              "aliases": [
+                "亲子"
+              ],
+              "expectedCount": 2,
+              "expectedRank": 3
+            },
+            {
+              "name": "酒吧",
+              "aliases": [],
+              "expectedCount": 2,
+              "expectedRank": 3
+            },
+            {
+              "name": "轰趴馆",
+              "aliases": [
+                "轰趴"
+              ],
+              "expectedCount": 2,
+              "expectedRank": 3
+            },
+            {
+              "name": "美睫·美甲",
+              "aliases": [
+                "美睫美甲",
+                "美睫/美甲"
+              ],
+              "expectedCount": 2,
+              "expectedRank": 3
+            }
+          ],
+          "failureReason": ""
+        },
+        {
+          "assertionId": "category-count-sum",
+          "description": "十个分类的店铺数量之和为 30。",
+          "status": "PASSED",
+          "passed": true,
+          "actual": {
+            "items": [
+              {
+                "name": "美食",
+                "expected": 9.0,
+                "matched": true,
+                "observed": [
+                  1.0,
+                  9.0
+                ]
+              },
+              {
+                "name": "KTV",
+                "expected": 5.0,
+                "matched": true,
+                "observed": [
+                  2.0,
+                  5.0
+                ]
+              },
+              {
+                "name": "丽人·美发",
+                "expected": 2.0,
+                "matched": true,
+                "observed": [
+                  3.0,
+                  2.0
+                ]
+              },
+              {
+                "name": "健身运动",
+                "expected": 2.0,
+                "matched": true,
+                "observed": [
+                  3.0,
+                  2.0
+                ]
+              },
+              {
+                "name": "按摩·足疗",
+                "expected": 2.0,
+                "matched": true,
+                "observed": [
+                  3.0,
+                  2.0
+                ]
+              },
+              {
+                "name": "美容SPA",
+                "expected": 2.0,
+                "matched": true,
+                "observed": [
+                  3.0,
+                  2.0
+                ]
+              },
+              {
+                "name": "亲子游乐",
+                "expected": 2.0,
+                "matched": true,
+                "observed": [
+                  3.0,
+                  2.0
+                ]
+              },
+              {
+                "name": "酒吧",
+                "expected": 2.0,
+                "matched": true,
+                "observed": [
+                  3.0,
+                  2.0
+                ]
+              },
+              {
+                "name": "轰趴馆",
+                "expected": 2.0,
+                "matched": true,
+                "observed": [
+                  3.0,
+                  2.0
+                ]
+              },
+              {
+                "name": "美睫·美甲",
+                "expected": 2.0,
+                "matched": true,
+                "observed": [
+                  3.0,
+                  2.0
+                ]
+              }
+            ],
+            "sum": 30.0
+          },
+          "expected": 30.0,
+          "failureReason": ""
+        },
+        {
+          "assertionId": "remaining-categories-not-different",
+          "description": "回答不得将后八类描述为店铺数量各不相同。",
+          "status": "PASSED",
+          "passed": true,
+          "actual": [],
+          "expected": "不得包含：后八类数量各不相同、其余八类数量各不相同、剩余八类数量各不相同",
+          "failureReason": ""
+        },
+        {
+          "assertionId": "top2-order",
+          "description": "数量最多的两个分类依次为美食、KTV。",
+          "status": "PASSED",
+          "passed": true,
+          "actual": [
+            {
+              "name": "美食",
+              "position": 363.0
+            },
+            {
+              "name": "KTV",
+              "position": 387.0
+            }
+          ],
+          "expected": [
+            "美食",
+            "KTV"
+          ],
+          "failureReason": ""
+        },
+        {
+          "assertionId": "top2-count",
+          "description": "Top 2 合计 14 家。",
+          "status": "PASSED",
+          "passed": true,
+          "actual": {
+            "context": "- Top 2 合计：14 家，占 46.67%（14/30）",
+            "raw": "14 家",
+            "value": 14.0
+          },
+          "expected": 14.0,
+          "failureReason": ""
+        },
+        {
+          "assertionId": "top2-share",
+          "description": "Top 2 合计占 46.67%。",
+          "status": "PASSED",
+          "passed": true,
+          "actual": {
+            "context": "- Top 2 合计：14 家，占 46.67%（14/30）",
+            "raw": "46.67%",
+            "value": 46.67
+          },
+          "expected": 46.67,
+          "failureReason": ""
+        }
+      ],
+      "status": "PASSED"
+    },
+    {
+      "caseId": "estimated-sales-top5",
+      "name": "估算销售金额 Top 5",
+      "prompt": "根据店铺均价和销量，按 estimated_sales_amount = avg_price × sold 估算销售金额，并找出估算金额最高的五家店铺。请同时给出全部店铺估算金额合计、Top 5 合计及其占比，并明确这是估算指标。",
+      "gold": {
+        "formula": "estimated_sales_amount = avg_price * sold",
+        "top5": [
+          {
+            "rank": 1,
+            "shop": "Mamala(杭州远洋乐堤港店)",
+            "estimated_sales_amount": 3920510
+          },
+          {
+            "rank": 2,
+            "shop": "INLOVE KTV(水晶城店)",
+            "estimated_sales_amount": 2698275
+          },
+          {
+            "rank": 3,
+            "shop": "开乐迪KTV（运河上街店）",
+            "estimated_sales_amount": 1801697
+          },
+          {
+            "rank": 4,
+            "shop": "幸福里老北京涮锅（丝联店）",
+            "estimated_sales_amount": 1239030
+          },
+          {
+            "rank": 5,
+            "shop": "讴K拉量贩KTV(北城天地店)",
+            "estimated_sales_amount": 1101826
+          }
+        ],
+        "total_estimated_sales_amount": 19777107,
+        "top5_estimated_sales_amount": 10761338,
+        "top5_percentage": 54.41,
+        "metric_nature": "估算指标，不是真实营收、实际收入或精确销售额。"
+      },
+      "finalAnswer": "## 估算结果\n\n**指标定义（估算值）：** `estimated_sales_amount = avg_price × sold`\n- `avg_price`：店铺均价（字段注释为“均价，取整数”，单位为元）\n- `sold`：销量\n- 该结果并非真实营业额。它用“人均消费 × 销量”进行近似，未考虑客单价与实际成交结构的差异、退款、折扣、套餐核销以及套餐包含的实际消费人数等因素，因此只能作为量级参考，不能当作财务统计值。\n\n### 估算金额最高的五家店铺\n\n| 排名 | 店铺 ID | 店铺名称 | 区域 | 均价（元） | 销量 | 估算金额（元） |\n|---|---|---|---|---|---|---|\n| 1 | 4 | Mamala(杭州远洋乐堤港店) | 拱宸桥/上塘 | 290 | 13,519 | 3,920,510 |\n| 2 | 11 | INLOVE KTV(水晶城店) | 水晶城 | 75 | 35,977 | 2,698,275 |\n| 3 | 10 | 开乐迪KTV（运河上街店） | 运河上街 | 67 | 26,891 | 1,801,697 |\n| 4 | 6 | 幸福里老北京涮锅（丝联店） | 拱宸桥/上塘 | 130 | 9,531 | 1,239,030 |\n| 5 | 13 | 讴K拉量贩KTV(北城天地店) | D32天阳购物中心 | 58 | 18,997 | 1,101,826 |\n\n排名依据 SQL 窗口函数 `RANK()` 生成（按估算金额降序）；第 5 名与第 6 名（星聚会KTV，1,066,260 元）数值不同，因此不存在并列，排名连续。\n\n### 合计与占比\n\n| 项目 | 估算金额（元） | 店铺数 |\n|---|---|---|\n| Top 5 合计 | 10,761,338 | 5 |\n| 全部店铺合计 | 19,777,107 | 30 |\n| **Top 5 占比** | **54.41%** | — |\n\n### 数据质量与口径说明\n- 统计范围为 `tb_shop` 全表的 30 家店铺；这 30 家店铺的 `avg_price` 均无空值、无 0 值，`sold` 也无 0 值，因此这 30 家店铺全部参与统计，未剔除任何记录。\n- 各店铺各占一行，店铺名称无重复，所以“全部店铺合计”等于各店铺估算值直接相加。\n- 估算金额为整数字段相乘的结果，未做四舍五入损失；占比按上述两个合计数复算，即 10,761,338 ÷ 19,777,107 = 54.41%。\n- `sold` 是数据快照中记录的统计值，未包含其统计起止时间，因此上述合计反映的是该快照口径下的估算总量，不能解释为某一具体时间段内的销售额。",
+      "http": {
+        "success": true,
+        "statusCode": 200,
+        "elapsedMs": 11795,
+        "taskId": "cba25204-d02d-4383-9550-b95205767bb0",
+        "turnId": "c57fbeab-02a9-44ca-b390-dc11ac4b9f62",
+        "error": null
+      },
+      "assertions": [
+        {
+          "assertionId": "top5-order-and-amounts",
+          "description": "Top 5 店铺顺序和估算金额正确。",
+          "status": "PASSED",
+          "passed": true,
+          "actual": {
+            "order": [
+              {
+                "name": "Mamala(杭州远洋乐堤港店)",
+                "position": 320.0
+              },
+              {
+                "name": "INLOVE KTV(水晶城店)",
+                "position": 386.0
+              },
+              {
+                "name": "开乐迪KTV（运河上街店）",
+                "position": 448.0
+              },
+              {
+                "name": "幸福里老北京涮锅（丝联店）",
+                "position": 507.0
+              },
+              {
+                "name": "讴K拉量贩KTV(北城天地店)",
+                "position": 569.0
+              }
+            ],
+            "metrics": [
+              {
+                "name": "Mamala(杭州远洋乐堤港店)",
+                "expected": 3920510.0,
+                "matched": true,
+                "observed": [
+                  1.0,
+                  4.0,
+                  290.0,
+                  13519.0,
+                  3920510.0
+                ]
+              },
+              {
+                "name": "INLOVE KTV(水晶城店)",
+                "expected": 2698275.0,
+                "matched": true,
+                "observed": [
+                  2.0,
+                  11.0,
+                  75.0,
+                  35977.0,
+                  2698275.0
+                ]
+              },
+              {
+                "name": "开乐迪KTV（运河上街店）",
+                "expected": 1801697.0,
+                "matched": true,
+                "observed": [
+                  3.0,
+                  10.0,
+                  67.0,
+                  26891.0,
+                  1801697.0
+                ]
+              },
+              {
+                "name": "幸福里老北京涮锅（丝联店）",
+                "expected": 1239030.0,
+                "matched": true,
+                "observed": [
+                  4.0,
+                  6.0,
+                  130.0,
+                  9531.0,
+                  1239030.0
+                ]
+              },
+              {
+                "name": "讴K拉量贩KTV(北城天地店)",
+                "expected": 1101826.0,
+                "matched": true,
+                "observed": [
+                  5.0,
+                  13.0,
+                  58.0,
+                  18997.0,
+                  1101826.0
+                ]
+              }
+            ]
+          },
+          "expected": [
+            {
+              "name": "Mamala(杭州远洋乐堤港店)",
+              "aliases": [
+                "Mamala（杭州远洋乐堤港店）",
+                "Mamala"
+              ],
+              "expected": 3920510,
+              "absoluteTolerance": 20
+            },
+            {
+              "name": "INLOVE KTV(水晶城店)",
+              "aliases": [
+                "INLOVE KTV（水晶城店）",
+                "INLOVE KTV"
+              ],
+              "expected": 2698275,
+              "absoluteTolerance": 20
+            },
+            {
+              "name": "开乐迪KTV（运河上街店）",
+              "aliases": [
+                "开乐迪KTV(运河上街店)",
+                "开乐迪KTV"
+              ],
+              "expected": 1801697,
+              "absoluteTolerance": 20
+            },
+            {
+              "name": "幸福里老北京涮锅（丝联店）",
+              "aliases": [
+                "幸福里老北京涮锅(丝联店)",
+                "幸福里老北京涮锅"
+              ],
+              "expected": 1239030,
+              "absoluteTolerance": 20
+            },
+            {
+              "name": "讴K拉量贩KTV(北城天地店)",
+              "aliases": [
+                "讴K拉量贩KTV（北城天地店）",
+                "讴K拉量贩KTV"
+              ],
+              "expected": 1101826,
+              "absoluteTolerance": 20
+            }
+          ],
+          "failureReason": ""
+        },
+        {
+          "assertionId": "total-estimated-amount",
+          "description": "全部店铺估算金额合计为 19,777,107 元。",
+          "status": "PASSED",
+          "passed": true,
+          "actual": {
+            "context": "| 全部店铺合计 | 19,777,107 | 30 |",
+            "raw": "19,777,107 ",
+            "value": 19777107.0
+          },
+          "expected": 19777107.0,
+          "failureReason": ""
+        },
+        {
+          "assertionId": "top5-estimated-amount",
+          "description": "Top 5 估算金额合计为 10,761,338 元。",
+          "status": "PASSED",
+          "passed": true,
+          "actual": {
+            "context": "| Top 5 合计 | 10,761,338 | 5 |",
+            "raw": "10,761,338 ",
+            "value": 10761338.0
+          },
+          "expected": 10761338.0,
+          "failureReason": ""
+        },
+        {
+          "assertionId": "top5-estimated-share",
+          "description": "Top 5 估算金额占比为 54.41%。",
+          "status": "PASSED",
+          "passed": true,
+          "actual": {
+            "context": "| Top 5 占比 | 54.41% | — |",
+            "raw": "54.41%",
+            "value": 54.41
+          },
+          "expected": 54.41,
+          "failureReason": ""
+        },
+        {
+          "assertionId": "estimated-nature-present",
+          "description": "回答明确保留估算性质。",
+          "status": "PASSED",
+          "passed": true,
+          "actual": [
+            "估算"
+          ],
+          "expected": [
+            "估算",
+            "估计",
+            "推算"
+          ],
+          "failureReason": ""
+        },
+        {
+          "assertionId": "false-real-revenue-absent",
+          "description": "回答未把估算金额描述为真实营收或精确销售额。",
+          "status": "PASSED",
+          "passed": true,
+          "actual": [],
+          "expected": "不得包含：实际营收、真实营收、实际收入、精确销售额、准确营收",
+          "failureReason": ""
+        }
+      ],
+      "status": "PASSED"
+    }
+  ]
+}

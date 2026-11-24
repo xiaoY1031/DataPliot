@@ -32,6 +32,34 @@ function Assert-MockCaseStatus {
     [PSCustomObject]@{name=$Name;status=$status;expectedStatus=$ExpectedStatus;failedAssertionIds=$failedIds;passed=$passed}
 }
 
+function Assert-SyntheticCompetitionRankStatus {
+    param(
+        [Parameter(Mandatory = $true)][string]$Name,
+        [Parameter(Mandatory = $true)][string]$Answer,
+        [Parameter(Mandatory = $true)][string]$ExpectedStatus
+    )
+    $assertion = [PSCustomObject]@{
+        assertionId = 'synthetic-competition-ranks'
+        type = 'entityCountRanks'
+        description = '9、5、2、2、1 必须使用竞赛排名 1、2、3、3、5。'
+        entities = @(
+            [PSCustomObject]@{name='甲';aliases=@();expectedCount=9;expectedRank=1}
+            [PSCustomObject]@{name='乙';aliases=@();expectedCount=5;expectedRank=2}
+            [PSCustomObject]@{name='丙';aliases=@();expectedCount=2;expectedRank=3}
+            [PSCustomObject]@{name='丁';aliases=@();expectedCount=2;expectedRank=3}
+            [PSCustomObject]@{name='戊';aliases=@();expectedCount=1;expectedRank=5}
+        )
+    }
+    $result = Invoke-DataPilotAssertions -Answer $Answer -Assertions @($assertion) | Select-Object -First 1
+    [PSCustomObject]@{
+        name = $Name
+        status = $result.status
+        expectedStatus = $ExpectedStatus
+        failedAssertionIds = if ($result.status -eq 'FAILED') { @($result.assertionId) } else { @() }
+        passed = $result.status -eq $ExpectedStatus
+    }
+}
+
 $validCategoryAnswer = @"
 全库总店铺数为 30 家。
 | 排名 | 分类 | 店铺数 | 占比 |
@@ -83,11 +111,33 @@ KTV：5 家，排名第 2，占 16.67%。
 Top 2 为美食和 KTV，合计 14 家，占 46.67%。
 "@
 
+$validSyntheticCompetitionRanks = @"
+| 排名 | 分类 | 数量 |
+| --- | --- | ---: |
+| 1 | 甲 | 9 |
+| 2 | 乙 | 5 |
+| 3 | 丙 | 2 |
+| 3 | 丁 | 2 |
+| 5 | 戊 | 1 |
+"@
+
+$sequentialSyntheticRanks = @"
+| 排名 | 分类 | 数量 |
+| --- | --- | ---: |
+| 1 | 甲 | 9 |
+| 2 | 乙 | 5 |
+| 3 | 丙 | 2 |
+| 4 | 丁 | 2 |
+| 5 | 戊 | 1 |
+"@
+
 $tests = @(
     Assert-MockCaseStatus -Name 'valid-shop-count' -CaseId 'shop-count' -Answer '当前数据库共有 30 家店铺，统计对象为 tb_shop 中的门店记录。' -ExpectedStatus 'PASSED'
     Assert-MockCaseStatus -Name 'unrelated-thirty-does-not-pass' -CaseId 'shop-count' -Answer '一共有 29 家店铺，另外查询耗时 30 毫秒。' -ExpectedStatus 'FAILED' -ExpectedFailedAssertionIds @('shop-count-value')
     Assert-MockCaseStatus -Name 'valid-competition-ties' -CaseId 'shop-category-distribution' -Answer $validCategoryAnswer -ExpectedStatus 'PASSED'
     Assert-MockCaseStatus -Name 'sequential-ranks-fail' -CaseId 'shop-category-distribution' -Answer $sequentialCategoryRanksAnswer -ExpectedStatus 'FAILED' -ExpectedFailedAssertionIds @('category-count-ranks')
+    Assert-SyntheticCompetitionRankStatus -Name 'competition-rank-gap-after-tie-passes' -Answer $validSyntheticCompetitionRanks -ExpectedStatus 'PASSED'
+    Assert-SyntheticCompetitionRankStatus -Name 'sequential-row-numbers-after-tie-fail' -Answer $sequentialSyntheticRanks -ExpectedStatus 'FAILED'
     Assert-MockCaseStatus -Name 'missing-tied-rank-does-not-pass' -CaseId 'shop-category-distribution' -Answer $missingCategoryRankAnswer -ExpectedStatus 'FAILED' -ExpectedFailedAssertionIds @('category-count-ranks')
     Assert-MockCaseStatus -Name 'category-name-rank-mismatch-fails' -CaseId 'shop-category-distribution' -Answer $mismatchedCategoryRankAnswer -ExpectedStatus 'FAILED' -ExpectedFailedAssertionIds @('category-count-ranks')
     Assert-MockCaseStatus -Name 'grouped-rank-needs-manual-review' -CaseId 'shop-category-distribution' -Answer $groupedRankAnswer -ExpectedStatus 'NEEDS_MANUAL_REVIEW'

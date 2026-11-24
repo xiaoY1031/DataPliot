@@ -8,6 +8,7 @@ import com.example.harness.task.TaskStore;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.core.io.ByteArrayResource;
+import org.springframework.core.io.ClassPathResource;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -15,6 +16,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -24,6 +26,19 @@ class ContextManagerTest {
 
     @TempDir
     Path temporaryDirectory;
+
+    @Test
+    void productionSystemPromptDefinesCompetitionRankingForFinalAnswers() throws IOException {
+        String prompt = new ClassPathResource("prompts/system.md")
+                .getContentAsString(StandardCharsets.UTF_8);
+
+        assertAll(
+                () -> assertTrue(prompt.contains("相同指标值必须使用相同排名")),
+                () -> assertTrue(prompt.contains("默认采用竞赛排名")),
+                () -> assertTrue(prompt.contains("9、5、2、2、1 对应排名 1、2、3、3、5")),
+                () -> assertTrue(prompt.contains("列名必须使用“序号”")),
+                () -> assertTrue(prompt.contains("不得称为“排名”")));
+    }
 
     @Test
     void buildsSystemTaskAndConversationContextInOrder() {
