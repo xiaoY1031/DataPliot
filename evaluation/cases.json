@@ -10,14 +10,24 @@
       "algorithm": "datapilot-canonical-row-v1",
       "description": "按主键升序读取显式字段；NULL 编码为 N，非 NULL 值按 invariant 文本转 UTF-8 后编码为 V<10位字节长度>:<小写十六进制>；字段以字段名=值编码并用 | 连接，行用 LF 连接，表名也以长度前缀 UTF-8 编码写入头部；整个规范文本使用无 BOM UTF-8 计算 SHA-256。",
       "tables": [
-        {"table": "tb_shop", "primaryKey": ["id"], "fields": ["id", "name", "type_id", "avg_price", "sold", "comments", "score"], "expectedSha256": "e2e51c1916efc4903b7b890dc1eec997311d90af8c582b494a317359bcaa887b"},
-        {"table": "tb_shop_type", "primaryKey": ["id"], "fields": ["id", "name", "sort"], "expectedSha256": "54870e3f9db333a9964dc51e7401a623bee4abe7ae777652cb1852ff8e3bd03d"}
+        {"table": "tb_shop", "primaryKey": ["id"], "fields": ["id", "name", "type_id", "avg_price", "sold", "comments", "score", "area"], "expectedSha256": "4c6f173497898e871aedf02579eac04773ea45adcc7aeccafe339b5639495db3"},
+        {"table": "tb_shop_type", "primaryKey": ["id"], "fields": ["id", "name", "sort"], "expectedSha256": "54870e3f9db333a9964dc51e7401a623bee4abe7ae777652cb1852ff8e3bd03d"},
+        {"table": "tb_voucher_order", "primaryKey": ["id"], "fields": ["id", "user_id", "voucher_id", "status", "create_time", "pay_time", "use_time", "refund_time"], "expectedSha256": "992379e7d542a505ca1a46fc7100dbb5e83de620f621f661609da8fda1e26f0c"},
+        {"table": "tb_voucher", "primaryKey": ["id"], "fields": ["id", "shop_id", "title", "pay_value", "actual_value"], "expectedSha256": "d2897090213748178f423533bb05dc65a56fa528d00178f2f5e471c9c6458d50"},
+        {"table": "tb_user", "primaryKey": ["id"], "fields": ["id", "nick_name"], "expectedSha256": "71d480f9e8cdbcbe72116149fb1d4441fae70628e476beb646db33c288c2a952"},
+        {"table": "tb_user_info", "primaryKey": ["user_id"], "fields": ["user_id", "fans"], "expectedSha256": "a8a3d3b3f94ef5e664c09fe4ac992f4735f0201cf29c2e13e288ff2402eacda2"},
+        {"table": "tb_sign", "primaryKey": ["id"], "fields": ["id", "user_id", "date"], "expectedSha256": "0046cc86e2531710227bcc2f93baeed2cc2d88d44ee9ae0bffad823bc7724895"},
+        {"table": "tb_blog", "primaryKey": ["id"], "fields": ["id", "title", "liked"], "expectedSha256": "3bd98143ec4d36ffc67dc2b0f7fa0586fcfc738d06fac199bac12197255c8656"},
+        {"table": "tb_blog_comments", "primaryKey": ["id"], "fields": ["id", "blog_id", "status"], "expectedSha256": "d25d3aeb95bd400d5418231557e257ebb8c467207dc7687d537f6fe1f0e7ac2f"},
+        {"table": "tb_follow", "primaryKey": ["id"], "fields": ["id", "user_id", "follow_user_id"], "expectedSha256": "9d8d508ab0697f26165e64ff1b049679b2e4c99524a8c909803ee00562966cdf"},
+        {"table": "tb_seckill_voucher", "primaryKey": ["voucher_id"], "fields": ["voucher_id", "stock", "begin_time", "end_time"], "expectedSha256": "12feaabf1fd820a32859b559c7c646f186a12543042e972af43b3c534ef0b4be"}
       ]
     }
   },
   "cases": [
     {
       "caseId": "shop-count",
+      "set": "dev",
       "name": "店铺总数",
       "prompt": "当前数据库中一共有多少家店铺？请给出店铺总数，并说明统计口径。",
       "gold": {"shop_count": 30, "distinct_shop_id_count": 30, "distinct_shop_name_count": 30, "counting_scope": "tb_shop 表记录数；店铺 ID 和店铺名称分别去重后也均为 30。"},
@@ -27,6 +37,7 @@
     },
     {
       "caseId": "shop-category-distribution",
+      "set": "dev",
       "name": "店铺分类数量、占比与 Top 2",
       "prompt": "分析当前数据库中不同分类的店铺数量和占比，并找出数量最多的两个分类。请说明总店铺数、各分类数量与占比，以及 Top 2 的合计数量和占比。",
       "gold": {
@@ -71,6 +82,7 @@
     },
     {
       "caseId": "estimated-sales-top5",
+      "set": "dev",
       "name": "估算销售金额 Top 5",
       "prompt": "根据店铺均价和销量，按 estimated_sales_amount = avg_price × sold 估算销售金额，并找出估算金额最高的五家店铺。请同时给出全部店铺估算金额合计、Top 5 合计及其占比，并明确这是估算指标。",
       "gold": {
@@ -96,6 +108,314 @@
         {"assertionId": "top5-estimated-share", "type": "labelValue", "description": "Top 5 估算金额占比为 54.41%。", "labels": ["Top 5", "Top5", "前五家", "前 5 家", "前5家"], "expected": 54.41, "valueType": "percentage", "absoluteTolerance": 0.02, "maxContextChars": 120},
         {"assertionId": "estimated-nature-present", "type": "requiredTerms", "description": "回答明确保留估算性质。", "terms": ["估算", "估计", "推算"], "match": "any"},
         {"assertionId": "false-real-revenue-absent", "type": "forbiddenTerms", "description": "回答未把估算金额描述为真实营收或精确销售额。", "terms": ["实际营收", "真实营收", "实际收入", "精确销售额", "准确营收"], "negationPrefixes": ["并非", "不是", "不代表", "不能视为", "不可视为"]}
+      ]
+    },
+    {
+      "caseId": "shop-food-value-filter",
+      "set": "dev",
+      "name": "美食多条件筛选店铺",
+      "prompt": "找出“美食”分类中人均价格不超过 100 元且评分至少 4.5 分的店铺。按销量从高到低列出店铺名称、均价、评分和销量；销量相同时按店铺 ID 升序。",
+      "gold": {
+        "filter": "type_name='美食' AND avg_price<=100 AND score>=45",
+        "rows": [
+          {"shop": "新白鹿餐厅(运河上街店)", "avg_price": 61, "sold": 12035, "score": 4.7},
+          {"shop": "炉鱼(拱墅万达广场店)", "avg_price": 85, "sold": 2631, "score": 4.7},
+          {"shop": "浅草屋寿司（运河上街店）", "avg_price": 88, "sold": 2406, "score": 4.6},
+          {"shop": "蔡馬洪涛烤肉·老北京铜锅涮羊肉", "avg_price": 85, "sold": 2160, "score": 4.6}
+        ]
+      },
+      "assertions": [
+        {"assertionId": "food-value-filter-rows", "type": "tabularRows", "description": "美食分类中均价≤100 且评分≥4.5 的 4 家店铺，按销量降序、ID 升序，逐列正确且评分已除以 10。", "keyColumns": ["店铺"], "columns": [
+          {"name": "店铺", "valueType": "string"},
+          {"name": "均价", "valueType": "integer"},
+          {"name": "销量", "valueType": "integer"},
+          {"name": "评分", "valueType": "decimal", "absoluteTolerance": 0.05}
+        ], "expectedRows": [
+          {"店铺": "新白鹿餐厅(运河上街店)", "均价": 61, "销量": 12035, "评分": 4.7},
+          {"店铺": "炉鱼(拱墅万达广场店)", "均价": 85, "销量": 2631, "评分": 4.7},
+          {"店铺": "浅草屋寿司（运河上街店）", "均价": 88, "销量": 2406, "评分": 4.6},
+          {"店铺": "蔡馬洪涛烤肉·老北京铜锅涮羊肉", "均价": 85, "销量": 2160, "评分": 4.6}
+        ], "mode": "exact", "ordered": true, "expectedRowCount": 4}
+      ]
+    },
+    {
+      "caseId": "shop-area-top3",
+      "set": "heldout",
+      "name": "商圈店铺数 Top 3",
+      "prompt": "按商圈统计店铺数、平均均价、总销量和平均评分，给出店铺数最多的 3 个商圈。先按店铺数降序，店铺数相同时按总销量降序，再按商圈名称升序。",
+      "gold": {
+        "rows": [
+          {"area": "运河上街", "shop_count": 7, "avg_price": 95.86, "total_sold": 51191, "avg_score": 4.51},
+          {"area": "北部新城", "shop_count": 4, "avg_price": 112.25, "total_sold": 23733, "avg_score": 4.65},
+          {"area": "大关", "shop_count": 4, "avg_price": 142.50, "total_sold": 10296, "avg_score": 4.50}
+        ]
+      },
+      "assertions": [
+        {"assertionId": "area-top3-rows", "type": "tabularRows", "description": "店铺数最多的 3 个商圈，四列指标与次级排序正确。", "keyColumns": ["商圈"], "columns": [
+          {"name": "商圈", "valueType": "string"},
+          {"name": "店铺数", "valueType": "integer"},
+          {"name": "均价", "valueType": "decimal", "absoluteTolerance": 0.01},
+          {"name": "总销量", "valueType": "integer"},
+          {"name": "评分", "valueType": "decimal", "absoluteTolerance": 0.05}
+        ], "expectedRows": [
+          {"商圈": "运河上街", "店铺数": 7, "均价": 95.86, "总销量": 51191, "评分": 4.51},
+          {"商圈": "北部新城", "店铺数": 4, "均价": 112.25, "总销量": 23733, "评分": 4.65},
+          {"商圈": "大关", "店铺数": 4, "均价": 142.50, "总销量": 10296, "评分": 4.50}
+        ], "mode": "exact", "ordered": true, "expectedRowCount": 3}
+      ]
+    },
+    {
+      "caseId": "order-status-october-2026",
+      "set": "dev",
+      "name": "2026年10月订单状态分布",
+      "prompt": "统计 2026 年 10 月创建的订单，按订单状态给出订单数，并给出该月订单总数和去重用户数。时间范围按 2026-10-01 00:00:00（含）到 2026-11-01 00:00:00（不含）。",
+      "gold": {
+        "status_counts": [
+          {"status": 1, "meaning": "未支付", "count": 6},
+          {"status": 2, "meaning": "已支付", "count": 5},
+          {"status": 3, "meaning": "已核销", "count": 6},
+          {"status": 4, "meaning": "已取消", "count": 6}
+        ],
+        "total_orders": 23,
+        "distinct_users": 23
+      },
+      "assertions": [
+        {"assertionId": "october-status-counts", "type": "entityMetrics", "description": "2026 年 10 月四个订单状态的订单数分别为 6、5、6、6。", "entities": [
+          {"name": "未支付", "aliases": ["待支付"], "metrics": [{"expected": 6, "valueType": "number", "absoluteTolerance": 0}]},
+          {"name": "已支付", "aliases": [], "metrics": [{"expected": 5, "valueType": "number", "absoluteTolerance": 0}]},
+          {"name": "已核销", "aliases": [], "metrics": [{"expected": 6, "valueType": "number", "absoluteTolerance": 0}]},
+          {"name": "已取消", "aliases": [], "metrics": [{"expected": 6, "valueType": "number", "absoluteTolerance": 0}]}
+        ]},
+        {"assertionId": "october-total-orders", "type": "labelValue", "description": "该月订单总数为 23。", "labels": ["订单总数", "总订单数", "订单总量", "总订单"], "expected": 23, "valueType": "number", "absoluteTolerance": 0, "maxContextChars": 80},
+        {"assertionId": "october-distinct-users", "type": "labelValue", "description": "该月去重用户数为 23。", "labels": ["去重用户数", "去重用户", "独立用户数", "独立用户", "不同用户"], "expected": 23, "valueType": "number", "absoluteTolerance": 0, "maxContextChars": 80},
+        {"assertionId": "october-use-create-time", "type": "requiredTerms", "description": "回答明确使用下单时间 create_time 而非 pay_time。", "terms": ["create_time", "下单时间", "创建时间", "生成时间"], "match": "any"}
+      ]
+    },
+    {
+      "caseId": "user-paid-amount-rank",
+      "set": "dev",
+      "name": "用户实付金额竞赛排名",
+      "prompt": "对状态为“已支付”或“已核销”的订单，按用户汇总代金券 pay_value 支付金额，并采用竞赛排名。列出竞赛排名不超过 6 的全部用户，给出用户 ID、昵称、订单数和累计支付金额；金额相同必须并列，下一名次应跳号。",
+      "gold": {
+        "rows": [
+          {"rank": 1, "user_id": 10, "nick_name": "user_88arndojw9", "order_count": 1, "pay_yuan": 298.00},
+          {"rank": 1, "user_id": 22, "nick_name": "user_r3kh1g6aah", "order_count": 1, "pay_yuan": 298.00},
+          {"rank": 1, "user_id": 34, "nick_name": "user_a2pgu8cr21", "order_count": 1, "pay_yuan": 298.00},
+          {"rank": 4, "user_id": 14, "nick_name": "user_f3rymyt1q5", "order_count": 1, "pay_yuan": 258.00},
+          {"rank": 4, "user_id": 26, "nick_name": "user_nevyd3c5ux", "order_count": 1, "pay_yuan": 258.00},
+          {"rank": 4, "user_id": 38, "nick_name": "user_4w7xeo2yyt", "order_count": 1, "pay_yuan": 258.00}
+        ]
+      },
+      "assertions": [
+        {"assertionId": "user-paid-amount-rank-rows", "type": "tabularRows", "description": "竞赛排名不超过 6 的六个用户，金额、订单数与 1,1,1,4,4,4 并列跳号正确。", "keyColumns": ["用户 ID"], "columns": [
+          {"name": "用户 ID", "valueType": "integer"},
+          {"name": "竞赛排名", "valueType": "integer"},
+          {"name": "昵称", "valueType": "string"},
+          {"name": "订单数", "valueType": "integer"},
+          {"name": "支付金额", "valueType": "currency", "currencyUnit": "yuan"}
+        ], "expectedRows": [
+          {"用户 ID": 10, "昵称": "user_88arndojw9", "订单数": 1, "支付金额": 298.00},
+          {"用户 ID": 22, "昵称": "user_r3kh1g6aah", "订单数": 1, "支付金额": 298.00},
+          {"用户 ID": 34, "昵称": "user_a2pgu8cr21", "订单数": 1, "支付金额": 298.00},
+          {"用户 ID": 14, "昵称": "user_f3rymyt1q5", "订单数": 1, "支付金额": 258.00},
+          {"用户 ID": 26, "昵称": "user_nevyd3c5ux", "订单数": 1, "支付金额": 258.00},
+          {"用户 ID": 38, "昵称": "user_4w7xeo2yyt", "订单数": 1, "支付金额": 258.00}
+        ], "mode": "exact", "ordered": false, "expectedRowCount": 6, "rankMode": "competition", "rankColumn": "竞赛排名", "metricColumn": "支付金额"}
+      ]
+    },
+    {
+      "caseId": "shop-paid-amount-rank",
+      "set": "heldout",
+      "name": "店铺实付金额竞赛排名",
+      "prompt": "对状态为“已支付”或“已核销”的订单，按店铺汇总订单数和 pay_value 支付金额，并按累计支付金额从高到低给出竞赛排名。请列出全部有符合条件订单的店铺。",
+      "gold": {
+        "rows": [
+          {"rank": 1, "shop": "开乐迪KTV（运河上街店）", "order_count": 6, "pay_yuan": 1668.00},
+          {"rank": 2, "shop": "海底捞火锅(水晶城购物中心店）", "order_count": 6, "pay_yuan": 1014.00},
+          {"rank": 3, "shop": "蔡馬洪涛烤肉·老北京铜锅涮羊肉", "order_count": 3, "pay_yuan": 300.00},
+          {"rank": 4, "shop": "103茶餐厅", "order_count": 3, "pay_yuan": 150.00}
+        ]
+      },
+      "assertions": [
+        {"assertionId": "shop-paid-amount-rank-rows", "type": "tabularRows", "description": "四家店铺的排名、订单数和支付金额正确，金额单位为元。", "keyColumns": ["店铺"], "columns": [
+          {"name": "店铺", "valueType": "string"},
+          {"name": "排名", "valueType": "integer"},
+          {"name": "订单数", "valueType": "integer"},
+          {"name": "支付金额", "valueType": "currency", "currencyUnit": "yuan"}
+        ], "expectedRows": [
+          {"店铺": "开乐迪KTV（运河上街店）", "订单数": 6, "支付金额": 1668.00},
+          {"店铺": "海底捞火锅(水晶城购物中心店）", "订单数": 6, "支付金额": 1014.00},
+          {"店铺": "蔡馬洪涛烤肉·老北京铜锅涮羊肉", "订单数": 3, "支付金额": 300.00},
+          {"店铺": "103茶餐厅", "订单数": 3, "支付金额": 150.00}
+        ], "mode": "exact", "ordered": true, "expectedRowCount": 4, "rankMode": "competition", "rankColumn": "排名", "metricColumn": "支付金额"},
+        {"assertionId": "shop-paid-amount-nature", "type": "requiredTerms", "description": "回答使用“支付金额”或等价表述。", "terms": ["支付金额", "实付", "支付"], "match": "any"}
+      ]
+    },
+    {
+      "caseId": "order-lifecycle-consistency",
+      "set": "dev",
+      "name": "订单状态时间字段一致性",
+      "prompt": "按订单状态统计订单数，并分别统计 pay_time、use_time、refund_time 非 NULL 的记录数。根据结果说明各状态的时间字段是否与当前数据一致，不要把 NULL 当作 0 时间或缺失订单。",
+      "gold": {
+        "rows": [
+          {"status": "未支付", "order_count": 9, "pay_time_present": 0, "use_time_present": 0, "refund_time_present": 0},
+          {"status": "已支付", "order_count": 9, "pay_time_present": 9, "use_time_present": 0, "refund_time_present": 0},
+          {"status": "已核销", "order_count": 9, "pay_time_present": 9, "use_time_present": 9, "refund_time_present": 0},
+          {"status": "已取消", "order_count": 9, "pay_time_present": 9, "use_time_present": 0, "refund_time_present": 9}
+        ]
+      },
+      "assertions": [
+        {"assertionId": "lifecycle-matrix-rows", "type": "tabularRows", "description": "四个状态行与三个时间字段非 NULL 数逐列正确。", "keyColumns": ["状态"], "columns": [
+          {"name": "状态", "valueType": "string", "match": "contains"},
+          {"name": "订单数", "valueType": "integer"},
+          {"name": "pay_time", "valueType": "integer"},
+          {"name": "use_time", "valueType": "integer"},
+          {"name": "refund_time", "valueType": "integer"}
+        ], "expectedRows": [
+          {"状态": "未支付", "订单数": 9, "pay_time": 0, "use_time": 0, "refund_time": 0},
+          {"状态": "已支付", "订单数": 9, "pay_time": 9, "use_time": 0, "refund_time": 0},
+          {"状态": "已核销", "订单数": 9, "pay_time": 9, "use_time": 9, "refund_time": 0},
+          {"状态": "已取消", "订单数": 9, "pay_time": 9, "use_time": 0, "refund_time": 9}
+        ], "mode": "exact", "ordered": true, "expectedRowCount": 4},
+        {"assertionId": "lifecycle-null-semantics", "type": "requiredTerms", "description": "回答明确 NULL 表示对应时间未记录。", "terms": ["NULL", "未记录", "未填写", "为空", "缺失"], "match": "any"}
+      ]
+    },
+    {
+      "caseId": "sign-daily-week1-202611",
+      "set": "dev",
+      "name": "11月首周每日签到统计",
+      "prompt": "统计 2026-11-01 至 2026-11-07（含首尾）每天的签到人数，并给出该时间段签到记录总数、去重用户数，以及签到人数达到最大值的全部日期。",
+      "gold": {
+        "daily": [
+          {"date": "2026-11-01", "count": 23},
+          {"date": "2026-11-02", "count": 23},
+          {"date": "2026-11-03", "count": 22},
+          {"date": "2026-11-04", "count": 22},
+          {"date": "2026-11-05", "count": 23},
+          {"date": "2026-11-06", "count": 23},
+          {"date": "2026-11-07", "count": 22}
+        ],
+        "total_records": 158,
+        "distinct_users": 30,
+        "max_count": 23,
+        "peak_dates": ["2026-11-01", "2026-11-02", "2026-11-05", "2026-11-06"]
+      },
+      "assertions": [
+        {"assertionId": "sign-daily-rows", "type": "tabularRows", "description": "七天逐日签到人数正确。", "keyColumns": ["日期"], "columns": [
+          {"name": "日期", "valueType": "date"},
+          {"name": "签到人数", "valueType": "integer"}
+        ], "expectedRows": [
+          {"日期": "2026-11-01", "签到人数": 23},
+          {"日期": "2026-11-02", "签到人数": 23},
+          {"日期": "2026-11-03", "签到人数": 22},
+          {"日期": "2026-11-04", "签到人数": 22},
+          {"日期": "2026-11-05", "签到人数": 23},
+          {"日期": "2026-11-06", "签到人数": 23},
+          {"日期": "2026-11-07", "签到人数": 22}
+        ], "mode": "exact", "ordered": true, "expectedRowCount": 7},
+        {"assertionId": "sign-total-records", "type": "labelValue", "description": "签到记录总数为 158。", "labels": ["签到记录总数", "记录总数", "总记录数", "签到记录"], "expected": 158, "valueType": "number", "absoluteTolerance": 0, "maxContextChars": 80},
+        {"assertionId": "sign-distinct-users", "type": "labelValue", "description": "去重用户数为 30。", "labels": ["去重用户数", "去重用户", "独立用户数", "不同用户"], "expected": 30, "valueType": "number", "absoluteTolerance": 0, "maxContextChars": 80},
+        {"assertionId": "sign-max-count", "type": "labelValue", "description": "最大签到人数为 23。", "labels": ["最大签到人数", "峰值", "最高签到", "最大值"], "expected": 23, "valueType": "number", "absoluteTolerance": 0, "maxContextChars": 80},
+        {"assertionId": "sign-peak-dates", "type": "labeledEntitySet", "description": "签到人数达到最大值的全部日期精确相等，不漏并列日期、不混入 22 人日期。", "labelTerms": ["峰值日期", "达到最大值", "达到最大", "最多", "最大值的日期"], "entityPattern": "\\d{4}-\\d{2}-\\d{2}", "expectedEntities": ["2026-11-01", "2026-11-02", "2026-11-05", "2026-11-06"], "mode": "exact"}
+      ]
+    },
+    {
+      "caseId": "blog-engagement-top5",
+      "set": "dev",
+      "name": "博客互动量 Top 5",
+      "prompt": "定义博客互动量为 liked + 正常评论数，其中正常评论数来自 tb_blog_comments 中 status = 0 的明细。找出互动量最高的 5 篇博客，列出 blog_id、标题、点赞数、正常评论数和互动量；互动量相同时按 blog_id 升序。",
+      "gold": {
+        "rows": [
+          {"blog_id": 40, "title": "周末探店｜悦己美容SPA体验分享", "liked": 94, "normal_comments": 3, "engagement": 97},
+          {"blog_id": 31, "title": "周末探店｜小勇士儿童运动馆体验分享", "liked": 91, "normal_comments": 3, "engagement": 94},
+          {"blog_id": 39, "title": "周末探店｜云端瑜伽普拉提体验分享", "liked": 83, "normal_comments": 3, "engagement": 86},
+          {"blog_id": 30, "title": "周末探店｜悦己美容SPA体验分享", "liked": 80, "normal_comments": 3, "engagement": 83},
+          {"blog_id": 47, "title": "周末探店｜魅(杭州远洋乐堤港店)体验分享", "liked": 75, "normal_comments": 2, "engagement": 77}
+        ]
+      },
+      "assertions": [
+        {"assertionId": "blog-engagement-top5-rows", "type": "tabularRows", "description": "互动量最高的 5 篇博客，以 blog_id 区分同名标题，逐列正确。", "keyColumns": ["blog_id"], "columns": [
+          {"name": "blog_id", "valueType": "integer"},
+          {"name": "标题", "valueType": "string"},
+          {"name": "点赞数", "valueType": "integer"},
+          {"name": "评论数", "valueType": "integer"},
+          {"name": "互动量", "valueType": "integer"}
+        ], "expectedRows": [
+          {"blog_id": 40, "标题": "周末探店｜悦己美容SPA体验分享", "点赞数": 94, "评论数": 3, "互动量": 97},
+          {"blog_id": 31, "标题": "周末探店｜小勇士儿童运动馆体验分享", "点赞数": 91, "评论数": 3, "互动量": 94},
+          {"blog_id": 39, "标题": "周末探店｜云端瑜伽普拉提体验分享", "点赞数": 83, "评论数": 3, "互动量": 86},
+          {"blog_id": 30, "标题": "周末探店｜悦己美容SPA体验分享", "点赞数": 80, "评论数": 3, "互动量": 83},
+          {"blog_id": 47, "标题": "周末探店｜魅(杭州远洋乐堤港店)体验分享", "点赞数": 75, "评论数": 2, "互动量": 77}
+        ], "mode": "exact", "ordered": true, "expectedRowCount": 5}
+      ]
+    },
+    {
+      "caseId": "follow-fan-count-consistency",
+      "set": "heldout",
+      "name": "粉丝数一致性",
+      "prompt": "以 tb_follow.follow_user_id 作为“被关注用户”，计算每位用户的实际粉丝数，并与 tb_user_info.fans 比较。报告关注关系总数、资料用户数、粉丝数一致和不一致的资料数，并列出实际粉丝数最多的 3 位用户；并列时按用户 ID 升序。",
+      "gold": {
+        "top3": [
+          {"user_id": 2, "nick_name": "可可今天不吃肉", "actual_fans": 3, "stored_fans": 3},
+          {"user_id": 5, "nick_name": "可爱多", "actual_fans": 3, "stored_fans": 3},
+          {"user_id": 27, "nick_name": "user_oow4frmjp3", "actual_fans": 3, "stored_fans": 3}
+        ],
+        "total_follow_relations": 101,
+        "profile_rows": 50,
+        "matching": 50,
+        "mismatching": 0
+      },
+      "assertions": [
+        {"assertionId": "follow-top3-rows", "type": "tabularRows", "description": "实际粉丝数最多的 3 位用户，实际与存储粉丝数正确。", "keyColumns": ["用户 ID"], "columns": [
+          {"name": "用户 ID", "valueType": "integer"},
+          {"name": "昵称", "valueType": "string"},
+          {"name": "实际粉丝数", "valueType": "integer"},
+          {"name": "存储粉丝数", "valueType": "integer"}
+        ], "expectedRows": [
+          {"用户 ID": 2, "昵称": "可可今天不吃肉", "实际粉丝数": 3, "存储粉丝数": 3},
+          {"用户 ID": 5, "昵称": "可爱多", "实际粉丝数": 3, "存储粉丝数": 3},
+          {"用户 ID": 27, "昵称": "user_oow4frmjp3", "实际粉丝数": 3, "存储粉丝数": 3}
+        ], "mode": "exact", "ordered": true, "expectedRowCount": 3},
+        {"assertionId": "follow-total-relations", "type": "labelValue", "description": "关注关系总数为 101。", "labels": ["关注关系总数", "关注关系", "关系总数", "关注总数"], "expected": 101, "valueType": "number", "absoluteTolerance": 0, "maxContextChars": 80},
+        {"assertionId": "follow-profile-rows", "type": "labelValue", "description": "用户资料行数为 50。", "labels": ["资料行数", "资料用户数", "用户资料", "资料记录"], "expected": 50, "valueType": "number", "absoluteTolerance": 0, "maxContextChars": 80},
+        {"assertionId": "follow-matching", "type": "labelValue", "description": "粉丝数一致的资料数为 50。", "labels": ["粉丝数一致", "一致数", "一致"], "expected": 50, "valueType": "number", "absoluteTolerance": 0, "maxContextChars": 80},
+        {"assertionId": "follow-mismatching", "type": "labelValue", "description": "粉丝数不一致的资料数为 0。", "labels": ["粉丝数不一致", "不一致数", "不一致"], "expected": 0, "valueType": "number", "absoluteTolerance": 0, "maxContextChars": 80}
+      ]
+    },
+    {
+      "caseId": "seckill-active-at-start",
+      "set": "heldout",
+      "name": "秒杀起始边界有效券",
+      "prompt": "以 2026-11-14 00:00:00 为观察时刻，按 begin_time <= 观察时刻且 end_time >= 观察时刻判断有效秒杀券。列出全部有效券的 voucher_id、店铺、库存、支付金额和抵扣金额，并给出有效券数量和库存合计。",
+      "gold": {
+        "rows": [
+          {"voucher_id": 16, "shop": "103茶餐厅", "stock": 41, "pay_yuan": 50.00, "actual_yuan": 29.90},
+          {"voucher_id": 17, "shop": "新白鹿餐厅(运河上街店)", "stock": 54, "pay_yuan": 188.00, "actual_yuan": 99.00},
+          {"voucher_id": 18, "shop": "海底捞火锅(水晶城购物中心店）", "stock": 67, "pay_yuan": 238.00, "actual_yuan": 129.00},
+          {"voucher_id": 19, "shop": "开乐迪KTV（运河上街店）", "stock": 80, "pay_yuan": 258.00, "actual_yuan": 128.00},
+          {"voucher_id": 20, "shop": "INLOVE KTV(水晶城店)", "stock": 93, "pay_yuan": 198.00, "actual_yuan": 99.00},
+          {"voucher_id": 21, "shop": "星聚会KTV(拱墅区万达店)", "stock": 106, "pay_yuan": 328.00, "actual_yuan": 168.00}
+        ],
+        "active_count": 6,
+        "total_stock": 441
+      },
+      "assertions": [
+        {"assertionId": "seckill-rows", "type": "tabularRows", "description": "起始边界上有效的六张券，逐行字段正确且支付金额与抵扣金额不互换。", "keyColumns": ["voucher_id"], "columns": [
+          {"name": "voucher_id", "valueType": "integer"},
+          {"name": "店铺", "valueType": "string"},
+          {"name": "库存", "valueType": "integer"},
+          {"name": "支付金额", "valueType": "currency", "currencyUnit": "yuan"},
+          {"name": "抵扣金额", "valueType": "currency", "currencyUnit": "yuan"}
+        ], "expectedRows": [
+          {"voucher_id": 16, "店铺": "103茶餐厅", "库存": 41, "支付金额": 50.00, "抵扣金额": 29.90},
+          {"voucher_id": 17, "店铺": "新白鹿餐厅(运河上街店)", "库存": 54, "支付金额": 188.00, "抵扣金额": 99.00},
+          {"voucher_id": 18, "店铺": "海底捞火锅(水晶城购物中心店）", "库存": 67, "支付金额": 238.00, "抵扣金额": 129.00},
+          {"voucher_id": 19, "店铺": "开乐迪KTV（运河上街店）", "库存": 80, "支付金额": 258.00, "抵扣金额": 128.00},
+          {"voucher_id": 20, "店铺": "INLOVE KTV(水晶城店)", "库存": 93, "支付金额": 198.00, "抵扣金额": 99.00},
+          {"voucher_id": 21, "店铺": "星聚会KTV(拱墅区万达店)", "库存": 106, "支付金额": 328.00, "抵扣金额": 168.00}
+        ], "mode": "exact", "ordered": false, "expectedRowCount": 6},
+        {"assertionId": "seckill-active-count", "type": "labelValue", "description": "有效券数量为 6。", "labels": ["有效券数量", "有效券数", "有效券", "有效秒杀券"], "expected": 6, "valueType": "number", "absoluteTolerance": 0, "maxContextChars": 80},
+        {"assertionId": "seckill-total-stock", "type": "labelValue", "description": "库存合计为 441。", "labels": ["库存合计", "库存总数", "总库存", "库存总量"], "expected": 441, "valueType": "number", "absoluteTolerance": 0, "maxContextChars": 80}
       ]
     }
   ]

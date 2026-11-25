@@ -11,7 +11,8 @@ param(
     [string]$DatabasePassword = $env:DATAPILOT_DB_PASSWORD,
     [string]$MySqlLoginPath,
     [string]$MySqlPath,
-    [string]$ModelName = $env:LLM_MODEL
+    [string]$ModelName = $env:LLM_MODEL,
+    [string]$Set
 )
 
 $ErrorActionPreference = "Stop"
@@ -97,7 +98,7 @@ $metadata = [ordered]@{
     systemPromptSha256=Get-FileSha256 -Path (Join-Path $repositoryRoot 'src\main\resources\prompts\system.md');
     dataAnalysisSkillSha256=Get-FileSha256 -Path (Join-Path $repositoryRoot 'skills\data-analysis\SKILL.md');
     modelName=Get-ConfiguredModelName -ApplicationConfigPath $applicationConfigPath -ExplicitModelName $ModelName;
-    baseUri=$BaseUri; databaseIdentifier=('mysql://{0}:{1}/{2}' -f $DatabaseHost, $DatabasePort, $DatabaseName)
+    baseUri=$BaseUri; set=([string]$Set); databaseIdentifier=('mysql://{0}:{1}/{2}' -f $DatabaseHost, $DatabasePort, $DatabaseName)
 }
 $runResult = [ordered]@{
     schemaVersion='1.0'; evaluationRunId=$runId; metadata=[PSCustomObject]$metadata;
@@ -117,7 +118,12 @@ try {
     Write-Host "指纹一致，允许开始评测。" -ForegroundColor Green
 
     $caseResults = @()
-    foreach ($case in @($definition.cases)) {
+    $selectedCases = @($definition.cases)
+    if (-not [string]::IsNullOrWhiteSpace($Set)) {
+        $selectedCases = @($selectedCases | Where-Object { [string]$_.set -eq $Set })
+        if ($selectedCases.Count -eq 0) { throw ("未找到集合 '{0}' 的评测用例（可用值：dev / heldout）。" -f $Set) }
+    }
+    foreach ($case in $selectedCases) {
         Write-Host ""
         Write-Host ("========== {0} ==========" -f $case.name) -ForegroundColor Cyan
         Write-Host $case.prompt
