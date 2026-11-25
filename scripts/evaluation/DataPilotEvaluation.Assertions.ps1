@@ -306,6 +306,361 @@ function Invoke-TermAssertion {
     if($passed){return New-AssertionResult -Assertion $Assertion -Status 'PASSED' -Actual $matches -Expected @($Assertion.terms) -FailureReason $null};return New-AssertionResult -Assertion $Assertion -Status 'FAILED' -Actual $matches -Expected @($Assertion.terms) -FailureReason '未找到要求的限定表达。'
 }
 
+function Get-EvaluationProperty {
+    param($Object, [string]$Name)
+    if ($null -eq $Object) { return $null }
+    $prop = $Object.PSObject.Properties[$Name]
+    if ($null -eq $prop) { return $null }
+    return $prop.Value
+}
+
+function ConvertFrom-EvaluationCellValue {
+    param([AllowNull()][string]$Cell, [string]$ValueType)
+    $text = if ($null -eq $Cell) { '' } else { $Cell.Trim() }
+    switch ($ValueType) {
+        'string' { return $text }
+        'integer' {
+            $tokens = @(Get-EvaluationNumberTokens -Text $text)
+            foreach ($t in $tokens) { if (-not $t.IsPercent) { return [double]$t.Value } }
+            return $null
+        }
+        'decimal' {
+            $tokens = @(Get-EvaluationNumberTokens -Text $text)
+            foreach ($t in $tokens) { if (-not $t.IsPercent) { return [double]$t.Value } }
+            return $null
+        }
+        'percentage' {
+            $tokens = @(Get-EvaluationNumberTokens -Text $text)
+            foreach ($t in $tokens) { if ($t.IsPercent) { return [double]$t.Value } }
+            return $null
+        }
+        'currency' {
+            $unit = 'yuan'
+            if ($text -match '分' -and $text -notmatch '百分|评分|分钟|%|％') { $unit = 'cent' }
+            $tokens = @(Get-EvaluationNumberTokens -Text $text)
+            if ($tokens.Count -eq 0) { return $null }
+            return [PSCustomObject]@{ Value = [double]$tokens[0].Value; Unit = $unit }
+        }
+        'date' {
+            $m = [regex]::Match($text, '\d{4}-\d{2}-\d{2}')
+            if ($m.Success) { return $m.Value }
+            return $null
+        }
+        'null' {
+            if ([string]::IsNullOrWhiteSpace($text) -or $text -match '^(NULL|null|-|N/A|无|空|—)$') { return $null }
+            return $text
+        }
+        default { return $text }
+    }
+}
+
+function Test-EvaluationCurrencyCellMatch {
+    param($Actual, [double]$Expected, [double]$Tolerance, [string]$CurrencyUnit, [bool]$AllowUnitConversion)
+    if ($null -eq $Actual) { return $false }
+    $v = [double]$Actual.Value
+    $u = [string]$Actual.Unit
+    if ($AllowUnitConversion) {
+        $actualYuan = if ($u -eq 'cent') { $v / 100.0 } else { $v }
+        $expectedYuan = if ($CurrencyUnit -eq 'cent') { $Expected / 100.0 } else { $Expected }
+        return (Test-EvaluationNumberMatch -Actual $actualYuan -Expected $expectedYuan -AbsoluteTolerance $Tolerance)
+    }
+    if ($u -ne $CurrencyUnit) { return $false }
+    return (Test-EvaluationNumberMatch -Actual $v -Expected $Expected -AbsoluteTolerance $Tolerance)
+}
+
+function Test-EvaluationCellMatch {
+    param($Actual, $Expected, $Column, [bool]$ForKey)
+    $valueType = if ($null -ne (Get-EvaluationProperty -Object $Column -Name 'valueType')) { [string](Get-EvaluationProperty -Object $Column -Name 'valueType') } else { 'string' }
+    $matchMode = if ($null -ne (Get-EvaluationProperty -Object $Column -Name 'match')) { [string](Get-EvaluationProperty -Object $Column -Name 'match') } else { 'exact' }
+    $tolerance = if ($null -ne (Get-EvaluationProperty -Object $Column -Name 'absoluteTolerance')) { [double](Get-EvaluationProperty -Object $Column -Name 'absoluteTolerance') } else { 0.0 }
+    switch ($valueType) {
+        'string' {
+            $actualStr = if ($null -eq $Actual) { '' } else { [string]$Actual }
+            $expectedStr = if ($null -eq $Expected) { '' } else { [string]$Expected }
+            if ($matchMode -eq 'contains') { return ($actualStr.IndexOf($expectedStr, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) }
+            return $actualStr.Equals($expectedStr, [System.StringComparison]::OrdinalIgnoreCase)
+        }
+        'integer' {
+            if ($null -eq $Actual) { return ($null -eq $Expected) }
+            return (Test-EvaluationNumberMatch -Actual ([double]$Actual) -Expected ([double]$Expected) -AbsoluteTolerance $tolerance)
+        }
+        'decimal' {
+            if ($null -eq $Actual) { return ($null -eq $Expected) }
+            return (Test-EvaluationNumberMatch -Actual ([double]$Actual) -Expected ([double]$Expected) -AbsoluteTolerance $tolerance)
+        }
+        'percentage' {
+            if ($null -eq $Actual) { return ($null -eq $Expected) }
+            return (Test-EvaluationNumberMatch -Actual ([double]$Actual) -Expected ([double]$Expected) -AbsoluteTolerance $tolerance)
+        }
+        'currency' {
+            $unit = if ($null -ne (Get-EvaluationProperty -Object $Column -Name 'currencyUnit')) { [string](Get-EvaluationProperty -Object $Column -Name 'currencyUnit') } else { 'yuan' }
+            $conv = if ($null -ne (Get-EvaluationProperty -Object $Column -Name 'allowUnitConversion')) { [bool](Get-EvaluationProperty -Object $Column -Name 'allowUnitConversion') } else { $false }
+            return (Test-EvaluationCurrencyCellMatch -Actual $Actual -Expected ([double]$Expected) -Tolerance $tolerance -CurrencyUnit $unit -AllowUnitConversion $conv)
+        }
+        'date' {
+            if ($null -eq $Actual) { return $false }
+            return ([string]$Actual -eq [string]$Expected)
+        }
+        'null' {
+            $expectNull = ($null -eq $Expected) -or ([string]$Expected -in @('', 'null', 'NULL'))
+            if ($expectNull) { return ($null -eq $Actual) }
+            return ($null -ne $Actual -and ([string]$Actual -eq [string]$Expected))
+        }
+    }
+    return $false
+}
+
+function Split-EvaluationDataTableRow {
+    param([Parameter(Mandatory = $true)][AllowEmptyString()][string]$Line)
+    $trimmed = $Line.Trim()
+    if (-not $trimmed.Contains('|')) { return @() }
+    return @(($trimmed.Trim('|') -split '\|') | ForEach-Object { $_.Trim() })
+}
+
+function Get-EvaluationMarkdownTables {
+    param([string]$Answer)
+    $lines = [regex]::Split($Answer, '\r?\n')
+    $tables = @()
+    $i = 0
+    while ($i -lt $lines.Count) {
+        $header = @(Split-EvaluationDataTableRow -Line $lines[$i])
+        if ($header.Count -lt 1) { $i++; continue }
+        $isSeparator = $false
+        if ($i + 1 -lt $lines.Count) {
+            $sepCells = @(Split-EvaluationDataTableRow -Line $lines[$i + 1])
+            if ($sepCells.Count -ge 1 -and @($sepCells | Where-Object { $_ -notmatch '^:?-{3,}:?$' }).Count -eq 0) { $isSeparator = $true }
+        }
+        if (-not $isSeparator) { $i++; continue }
+        $rows = @()
+        for ($j = $i + 2; $j -lt $lines.Count; $j++) {
+            $r = @(Split-EvaluationDataTableRow -Line $lines[$j])
+            if ($r.Count -eq 0) { break }
+            if (@($r | Where-Object { $_ -notmatch '^:?-{3,}:?$' }).Count -eq 0) { continue }
+            $rows += ,$r
+        }
+        $tables += [PSCustomObject]@{ header = $header; rows = $rows }
+        $i += 2 + $rows.Count
+    }
+    return @($tables)
+}
+
+function Find-EvaluationTargetTable {
+    param([object[]]$Tables, [object[]]$HeaderAliases)
+    if ($null -eq $Tables -or @($Tables).Count -eq 0) { return $null }
+    if ($null -eq $HeaderAliases -or @($HeaderAliases).Count -eq 0) { return @($Tables)[0] }
+    $aliases = @($HeaderAliases | ForEach-Object { [string]$_ })
+    foreach ($t in @($Tables)) {
+        $headerText = (@($t.header) -join ' ')
+        $allMatch = $true
+        foreach ($a in $aliases) {
+            if ($headerText.IndexOf($a, [System.StringComparison]::OrdinalIgnoreCase) -lt 0) { $allMatch = $false; break }
+        }
+        if ($allMatch) { return $t }
+    }
+    return $null
+}
+
+function Find-EvaluationColumnIndex {
+    param([object[]]$Header, [string]$ColumnName)
+    for ($i = 0; $i -lt @($Header).Count; $i++) {
+        if ([string]$Header[$i] -eq $ColumnName) { return $i }
+    }
+    for ($i = 0; $i -lt @($Header).Count; $i++) {
+        $h = [string]$Header[$i]
+        if ($h.Length -gt 0 -and $h.IndexOf($ColumnName, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) { return $i }
+    }
+    return -1
+}
+
+function Test-EvaluationRowKeyMatch {
+    param($Record, $ExpectedRow, [object[]]$KeyColumns, [object[]]$Columns)
+    foreach ($kc in $KeyColumns) {
+        $col = @($Columns | Where-Object { [string]$_.name -eq [string]$kc } | Select-Object -First 1)
+        if (@($col).Count -eq 0) { return $false }
+        $colObj = @($col)[0]
+        $actualVal = Get-EvaluationProperty -Object $Record -Name ([string]$kc)
+        $expectedVal = Get-EvaluationProperty -Object $ExpectedRow -Name ([string]$kc)
+        if (-not (Test-EvaluationCellMatch -Actual $actualVal -Expected $expectedVal -Column $colObj -ForKey $true)) { return $false }
+    }
+    return $true
+}
+
+function Get-EvaluationNumericValue {
+    param($Value)
+    if ($null -eq $Value) { return $null }
+    if ($Value -is [PSCustomObject]) {
+        $vprop = $Value.PSObject.Properties['Value']
+        if ($null -ne $vprop) { return [double]$vprop.Value }
+    }
+    return [double]$Value
+}
+
+function Test-EvaluationCompetitionRanks {
+    param([object[]]$Records, [string]$RankColumn, [string]$MetricColumn)
+    $n = @($Records).Count
+    if ($n -eq 0) { return $true }
+    $metrics = @(); $ranks = @()
+    foreach ($r in @($Records)) {
+        $mv = Get-EvaluationNumericValue -Value (Get-EvaluationProperty -Object $r -Name $MetricColumn)
+        $rv = Get-EvaluationNumericValue -Value (Get-EvaluationProperty -Object $r -Name $RankColumn)
+        if ($null -eq $mv -or $null -eq $rv) { return $false }
+        $metrics += [double]$mv
+        $ranks += [double]$rv
+    }
+    for ($i = 0; $i -lt $n; $i++) {
+        $expectedRank = 1
+        for ($j = 0; $j -lt $n; $j++) {
+            if ($j -ne $i -and $metrics[$j] -gt $metrics[$i]) { $expectedRank++ }
+        }
+        if ([math]::Abs($ranks[$i] - $expectedRank) -gt 1e-9) { return $false }
+    }
+    return $true
+}
+
+function Invoke-TabularRowsAssertion {
+    param([string]$Answer, $Assertion)
+    $columns = @($Assertion.columns)
+    $expectedRows = @($Assertion.expectedRows)
+    $keyColumns = @(if ($null -ne $Assertion.PSObject.Properties['keyColumns']) { @($Assertion.keyColumns | ForEach-Object { [string]$_ }) } else { @() })
+    $mode = if ($null -ne $Assertion.PSObject.Properties['mode']) { [string]$Assertion.mode } else { 'exact' }
+    $ordered = if ($null -ne $Assertion.PSObject.Properties['ordered']) { [bool]$Assertion.ordered } else { $false }
+    $expectedRowCount = if ($null -ne $Assertion.PSObject.Properties['expectedRowCount']) { [int]$Assertion.expectedRowCount } else { $expectedRows.Count }
+    $headerAliases = @(if ($null -ne $Assertion.PSObject.Properties['headerAliases']) { @($Assertion.headerAliases | ForEach-Object { [string]$_ }) } else { @() })
+
+    $tables = @(Get-EvaluationMarkdownTables -Answer $Answer)
+    if ($tables.Count -eq 0) {
+        return New-AssertionResult -Assertion $Assertion -Status 'FAILED' -Actual $null -Expected $expectedRows -FailureReason '回答中未找到 Markdown 表格。'
+    }
+    $table = Find-EvaluationTargetTable -Tables $tables -HeaderAliases $headerAliases
+    if ($null -eq $table) {
+        return New-AssertionResult -Assertion $Assertion -Status 'FAILED' -Actual $null -Expected $expectedRows -FailureReason ('未找到包含指定表头（' + ($headerAliases -join '、') + '）的表格。')
+    }
+    $colIndex = @{}
+    foreach ($col in $columns) {
+        $colName = [string]$col.name
+        $idx = Find-EvaluationColumnIndex -Header @($table.header) -ColumnName $colName
+        if ($idx -lt 0) {
+            return New-AssertionResult -Assertion $Assertion -Status 'FAILED' -Actual $null -Expected $expectedRows -FailureReason ("未找到表头列：$colName")
+        }
+        $colIndex[$colName] = $idx
+    }
+    $records = @()
+    foreach ($row in @($table.rows)) {
+        $recProps = [ordered]@{}
+        foreach ($col in $columns) {
+            $colName = [string]$col.name
+            $idx = $colIndex[$colName]
+            $cell = if ($idx -lt @($row).Count) { $row[$idx] } else { '' }
+            $recProps[$colName] = ConvertFrom-EvaluationCellValue -Cell $cell -ValueType ([string]$col.valueType)
+        }
+        $records += [PSCustomObject]$recProps
+    }
+
+    if ($null -ne $Assertion.PSObject.Properties['rankMode'] -and [string]$Assertion.rankMode -eq 'competition') {
+        $rankCol = [string]$Assertion.rankColumn
+        $metricCol = [string]$Assertion.metricColumn
+        if (-not (Test-EvaluationCompetitionRanks -Records $records -RankColumn $rankCol -MetricColumn $metricCol)) {
+            return New-AssertionResult -Assertion $Assertion -Status 'FAILED' -Actual $records -Expected $expectedRows -FailureReason '竞赛排名与指标值不一致（并列未同排名或未跳号）。'
+        }
+    }
+
+    $usedRecordIndexes = @()
+    $matchedRecordIndexes = @()
+    $missingExpected = @()
+    $mismatchedExpected = @()
+    foreach ($er in $expectedRows) {
+        $foundRecordIndex = -1
+        $mismatchReason = $null
+        for ($ri = 0; $ri -lt $records.Count; $ri++) {
+            if ($usedRecordIndexes -contains $ri) { continue }
+            if (Test-EvaluationRowKeyMatch -Record $records[$ri] -ExpectedRow $er -KeyColumns $keyColumns -Columns $columns) {
+                $foundRecordIndex = $ri
+                $badColumns = @()
+                foreach ($col in $columns) {
+                    $colName = [string]$col.name
+                    $erProp = $er.PSObject.Properties[$colName]
+                    if ($null -eq $erProp) { continue }
+                    $actualVal = Get-EvaluationProperty -Object $records[$ri] -Name $colName
+                    $expectedVal = $erProp.Value
+                    if (-not (Test-EvaluationCellMatch -Actual $actualVal -Expected $expectedVal -Column $col -ForKey $false)) {
+                        $badColumns += $colName
+                    }
+                }
+                if ($badColumns.Count -gt 0) { $mismatchReason = '列不匹配：' + ($badColumns -join '、') }
+                break
+            }
+        }
+        if ($foundRecordIndex -lt 0) { $missingExpected += $er }
+        else {
+            $usedRecordIndexes += $foundRecordIndex
+            $matchedRecordIndexes += $foundRecordIndex
+            if ($null -ne $mismatchReason) { $mismatchedExpected += [PSCustomObject]@{ row = $er; reason = $mismatchReason } }
+        }
+    }
+    $extraRecordIndexes = @()
+    for ($ri = 0; $ri -lt $records.Count; $ri++) {
+        if ($usedRecordIndexes -notcontains $ri) { $extraRecordIndexes += $ri }
+    }
+    $orderFailed = $false
+    if ($ordered -and $matchedRecordIndexes.Count -gt 1) {
+        for ($k = 1; $k -lt $matchedRecordIndexes.Count; $k++) {
+            if ($matchedRecordIndexes[$k] -le $matchedRecordIndexes[$k - 1]) { $orderFailed = $true; break }
+        }
+    }
+    $reasons = @()
+    if ($missingExpected.Count -gt 0) {
+        $missingNames = @($missingExpected | ForEach-Object { $v = Get-EvaluationProperty -Object $_ -Name ([string]$keyColumns[0]); if ($null -eq $v) { '(未知)' } else { [string]$v } })
+        $reasons += ('漏行：' + ($missingNames -join '、'))
+    }
+    if ($mode -eq 'exact') {
+        if ($records.Count -ne $expectedRowCount) { $reasons += ('行数不符：实际 ' + $records.Count + ' 行，期望 ' + $expectedRowCount + ' 行') }
+        if ($extraRecordIndexes.Count -gt 0) { $reasons += ('额外行：' + $extraRecordIndexes.Count + ' 行') }
+    }
+    if ($mismatchedExpected.Count -gt 0) { $reasons += ('数值列不匹配：' + (($mismatchedExpected | ForEach-Object { $_.reason }) -join '；')) }
+    if ($orderFailed) { $reasons += '行顺序与 Gold 不一致。' }
+    if ($reasons.Count -gt 0) {
+        return New-AssertionResult -Assertion $Assertion -Status 'FAILED' -Actual $records -Expected $expectedRows -FailureReason ($reasons -join ' ')
+    }
+    return New-AssertionResult -Assertion $Assertion -Status 'PASSED' -Actual $records -Expected $expectedRows -FailureReason $null
+}
+
+function Invoke-LabeledEntitySetAssertion {
+    param([string]$Answer, $Assertion)
+    $labelTerms = @(if ($null -ne $Assertion.PSObject.Properties['labelTerms']) { @($Assertion.labelTerms | ForEach-Object { [string]$_ }) } else { @() })
+    $entityPattern = if ($null -ne $Assertion.PSObject.Properties['entityPattern']) { [string]$Assertion.entityPattern } else { '' }
+    $expectedEntities = @(if ($null -ne $Assertion.PSObject.Properties['expectedEntities']) { @($Assertion.expectedEntities | ForEach-Object { [string]$_ }) } else { @() })
+    $mode = if ($null -ne $Assertion.PSObject.Properties['mode']) { [string]$Assertion.mode } else { 'exact' }
+    $maxContextChars = if ($null -ne $Assertion.PSObject.Properties['maxContextChars']) { [int]$Assertion.maxContextChars } else { 300 }
+
+    if ($entityPattern -eq '' -or $labelTerms.Count -eq 0) {
+        return New-AssertionResult -Assertion $Assertion -Status 'UNVERIFIABLE' -Actual $null -Expected $expectedEntities -FailureReason 'labeledEntitySet 缺少 labelTerms 或 entityPattern。'
+    }
+    $allWindows = @(Get-EvaluationContextWindows -Text $Answer -Terms $labelTerms -MaxContextChars $maxContextChars)
+    $lineWindows = @($allWindows | Where-Object { $_ -notmatch '[\r\n]' })
+    $windows = $lineWindows
+    if ($windows.Count -eq 0) { $windows = $allWindows }
+    if ($windows.Count -eq 0) {
+        return New-AssertionResult -Assertion $Assertion -Status 'FAILED' -Actual $null -Expected $expectedEntities -FailureReason ('未找到目标标签：' + ($labelTerms -join '、'))
+    }
+    $found = @()
+    foreach ($w in $windows) {
+        foreach ($m in [regex]::Matches($w, $entityPattern)) {
+            if ($found -notcontains $m.Value) { $found += $m.Value }
+        }
+    }
+    $missing = @($expectedEntities | Where-Object { $found -notcontains $_ })
+    $extra = @($found | Where-Object { $expectedEntities -notcontains $_ })
+    if ($mode -eq 'contains') {
+        if ($missing.Count -eq 0) { return New-AssertionResult -Assertion $Assertion -Status 'PASSED' -Actual $found -Expected $expectedEntities -FailureReason $null }
+        return New-AssertionResult -Assertion $Assertion -Status 'FAILED' -Actual $found -Expected $expectedEntities -FailureReason ('缺失：' + ($missing -join '、'))
+    }
+    if ($missing.Count -eq 0 -and $extra.Count -eq 0) { return New-AssertionResult -Assertion $Assertion -Status 'PASSED' -Actual $found -Expected $expectedEntities -FailureReason $null }
+    $reasons = @()
+    if ($missing.Count -gt 0) { $reasons += '缺失：' + ($missing -join '、') }
+    if ($extra.Count -gt 0) { $reasons += '多余：' + ($extra -join '、') }
+    return New-AssertionResult -Assertion $Assertion -Status 'FAILED' -Actual $found -Expected $expectedEntities -FailureReason ($reasons -join ' ')
+}
+
 function Invoke-DataPilotAssertions {
     param([string]$Answer, [object[]]$Assertions)
     $normalized=ConvertTo-NormalizedEvaluationText -Text $Answer;$results=@()
@@ -318,6 +673,8 @@ function Invoke-DataPilotAssertions {
         'orderedEntityMetrics'{$results+=Invoke-OrderedEntityMetricsAssertion -Answer $normalized -Assertion $assertion}
         'requiredTerms'{$results+=Invoke-TermAssertion -Answer $normalized -Assertion $assertion -Forbidden $false}
         'forbiddenTerms'{$results+=Invoke-TermAssertion -Answer $normalized -Assertion $assertion -Forbidden $true}
+        'tabularRows'{$results+=Invoke-TabularRowsAssertion -Answer $normalized -Assertion $assertion}
+        'labeledEntitySet'{$results+=Invoke-LabeledEntitySetAssertion -Answer $normalized -Assertion $assertion}
         'manual'{$results+=New-AssertionResult -Assertion $assertion -Status 'MANUAL' -Actual $null -Expected $assertion.expected -FailureReason '该语义规则无法由 V1 字符串与数字规则可靠验证。'}
         default{$results+=New-AssertionResult -Assertion $assertion -Status 'UNVERIFIABLE' -Actual $null -Expected $null -FailureReason ("不支持的断言类型："+[string]$assertion.type)}
     }}catch{$results+=New-AssertionResult -Assertion $assertion -Status 'UNVERIFIABLE' -Actual $null -Expected $null -FailureReason $_.Exception.Message}}
