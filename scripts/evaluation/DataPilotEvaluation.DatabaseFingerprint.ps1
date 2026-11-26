@@ -90,7 +90,8 @@ function Get-DataPilotDatabaseFingerprint {
         $canonicalRows = @()
         foreach ($rowJson in $rows) {
             if ([string]::IsNullOrWhiteSpace($rowJson)) { continue }
-            $values = @($rowJson | ConvertFrom-Json)
+            $parsedRow = $rowJson | ConvertFrom-Json
+            $values = @($parsedRow)
             if ($values.Count -ne $fields.Count) { throw "表 $tableName 的指纹查询列数异常：期望 $($fields.Count)，实际 $($values.Count)。" }
             $encodedFields = @()
             for ($i = 0; $i -lt $fields.Count; $i++) {
