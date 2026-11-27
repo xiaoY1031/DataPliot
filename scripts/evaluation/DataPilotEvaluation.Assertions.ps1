@@ -6,6 +6,37 @@ function ConvertTo-NormalizedEvaluationText {
     return $Text.Replace([char]0x00A0, ' ').Replace([char]0x3000, ' ') -replace '\*\*|__', ''
 }
 
+function ConvertTo-EvaluationMatchKey {
+    param([AllowNull()][string]$Text)
+    if ($null -eq $Text) { return '' }
+    $collapsed = $Text -replace '\s+', ''
+    if ($collapsed.Length -eq 0) { return '' }
+    $builder = New-Object System.Text.StringBuilder
+    foreach ($ch in $collapsed.ToCharArray()) {
+        $code = [int]$ch
+        if ($code -ge 0xFF01 -and $code -le 0xFF5E) { $code = $code - 0xFEE0 }
+        [void]$builder.Append([char]$code)
+    }
+    return $builder.ToString().ToLowerInvariant()
+}
+
+function Test-EvaluationSubsequenceMatch {
+    param([Parameter(Mandatory = $true)][string]$TermKey, [Parameter(Mandatory = $true)][string]$TextKey)
+    if ($TermKey.Length -eq 0 -or $TermKey.Length -gt $TextKey.Length) { return $false }
+    $gapMax = [math]::Max(2, [math]::Floor($TermKey.Length / 2))
+    $ti = 0; $skipped = 0
+    for ($si = 0; $si -lt $TextKey.Length; $si++) {
+        if ($TextKey[$si] -eq $TermKey[$ti]) {
+            $ti++; $skipped = 0
+            if ($ti -ge $TermKey.Length) { return $true }
+        } elseif ($ti -gt 0) {
+            $skipped++
+            if ($skipped -gt $gapMax) { return $false }
+        }
+    }
+    return $false
+}
+
 function ConvertFrom-EvaluationNumberToken {
     param([Parameter(Mandatory = $true)][string]$Token)
     $trimmed = $Token.Trim()
@@ -61,6 +92,72 @@ function Get-EvaluationContextWindows {
     return @($windows | Select-Object -Unique)
 }
 
+function Get-EvaluationLabelWindows {
+    param([string]$Text, [object[]]$Terms, [int]$MaxContextChars = 100)
+    $windows = @(Get-EvaluationContextWindows -Text $Text -Terms $Terms -MaxContextChars $MaxContextChars)
+    $lines = [regex]::Split($Text, '\r?\n')
+    foreach ($termValue in $Terms) {
+        $term = [string]$termValue
+        if ([string]::IsNullOrWhiteSpace($term)) { continue }
+        $termKey = ConvertTo-EvaluationMatchKey -Text $term
+        if ($termKey.Length -eq 0) { continue }
+        foreach ($line in $lines) {
+            $lineKey = ConvertTo-EvaluationMatchKey -Text $line
+            if ($lineKey.Length -eq 0) { continue }
+            if ($lineKey.IndexOf($termKey, [System.StringComparison]::Ordinal) -ge 0) { $windows += $line.Trim(); continue }
+            if (Test-EvaluationSubsequenceMatch -TermKey $termKey -TextKey $lineKey) { $windows += $line.Trim() }
+        }
+    }
+    return @($windows | Select-Object -Unique)
+}
+
+function Get-LabeledEntityWindows {
+    param([string]$Text, [object[]]$LabelTerms, [string]$EntityPattern)
+    $lines = [regex]::Split($Text, '\r?\n')
+    $windows = @()
+    foreach ($termValue in $LabelTerms) {
+        $term = [string]$termValue
+        if ([string]::IsNullOrWhiteSpace($term)) { continue }
+        for ($i = 0; $i -lt $lines.Count; $i++) {
+            if ($lines[$i].IndexOf($term, [System.StringComparison]::OrdinalIgnoreCase) -lt 0) { continue }
+            $window = $lines[$i].Trim()
+            if (-not [string]::IsNullOrWhiteSpace($EntityPattern) -and -not [regex]::IsMatch($lines[$i], $EntityPattern)) {
+                if ($i + 1 -lt $lines.Count -and -not [string]::IsNullOrWhiteSpace($lines[$i + 1])) {
+                    $window = $window + [char]10 + $lines[$i + 1].Trim()
+                }
+            }
+            $windows += $window
+        }
+    }
+    return @($windows | Select-Object -Unique)
+}
+
+function Get-EvaluationAmbiguousCandidates {
+    param([object[]]$Header, [string]$ColumnName)
+    $colKey = ConvertTo-EvaluationMatchKey -Text $ColumnName
+    if ($colKey.Length -eq 0) { return @() }
+    $candidates = @()
+    foreach ($h in @($Header)) {
+        $hText = [string]$h
+        $hKey = ConvertTo-EvaluationMatchKey -Text $hText
+        if ($hKey.Length -eq 0) { continue }
+        if ($hKey -eq $colKey -or $hKey.IndexOf($colKey, [System.StringComparison]::Ordinal) -ge 0) { $candidates += $hText }
+    }
+    return @($candidates | Select-Object -Unique)
+}
+
+function Test-EvaluationHeaderContains {
+    param([object[]]$Header, [string]$ColumnName)
+    $colKey = ConvertTo-EvaluationMatchKey -Text $ColumnName
+    if ($colKey.Length -eq 0) { return $false }
+    foreach ($h in @($Header)) {
+        $hKey = ConvertTo-EvaluationMatchKey -Text ([string]$h)
+        if ($hKey.Length -eq 0) { continue }
+        if ($hKey -eq $colKey -or $hKey.IndexOf($colKey, [System.StringComparison]::Ordinal) -ge 0) { return $true }
+    }
+    return $false
+}
+
 function Get-EntityContext {
     param([string]$Text, $Entity, [int]$MaxContextChars = 180)
     $terms = @([string]$Entity.name)
@@ -85,7 +182,7 @@ function Invoke-LabelValueAssertion {
     $expected = [double]$Assertion.expected
     $allowedUnitsProperty = $Assertion.PSObject.Properties['allowedUnits']
     $allowedUnits = if ($null -ne $allowedUnitsProperty) { @($allowedUnitsProperty.Value | ForEach-Object { [string]$_ }) } else { $null }
-    $contexts = @(Get-EvaluationContextWindows -Text $Answer -Terms @($Assertion.labels) -MaxContextChars $maxContextChars)
+    $contexts = @(Get-EvaluationLabelWindows -Text $Answer -Terms @($Assertion.labels) -MaxContextChars $maxContextChars)
     $observed = @()
     foreach ($context in $contexts) {
         foreach ($token in (Get-EvaluationNumberTokens -Text $context)) {
@@ -159,11 +256,11 @@ function ConvertFrom-EvaluationIntegerCell {
 
 function Test-EvaluationEntityCellMatch {
     param([string]$Cell, $Entity)
-    $normalizedCell = $Cell.Trim()
+    $cellKey = ConvertTo-EvaluationMatchKey -Text $Cell
     $terms = @([string]$Entity.name)
     if ($null -ne $Entity.aliases) { $terms += @($Entity.aliases | ForEach-Object { [string]$_ }) }
     foreach ($term in $terms) {
-        if ($normalizedCell.Equals($term.Trim(), [System.StringComparison]::OrdinalIgnoreCase)) { return $true }
+        if ($cellKey -eq (ConvertTo-EvaluationMatchKey -Text $term)) { return $true }
     }
     return $false
 }
@@ -375,10 +472,10 @@ function Test-EvaluationCellMatch {
     $tolerance = if ($null -ne (Get-EvaluationProperty -Object $Column -Name 'absoluteTolerance')) { [double](Get-EvaluationProperty -Object $Column -Name 'absoluteTolerance') } else { 0.0 }
     switch ($valueType) {
         'string' {
-            $actualStr = if ($null -eq $Actual) { '' } else { [string]$Actual }
-            $expectedStr = if ($null -eq $Expected) { '' } else { [string]$Expected }
-            if ($matchMode -eq 'contains') { return ($actualStr.IndexOf($expectedStr, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) }
-            return $actualStr.Equals($expectedStr, [System.StringComparison]::OrdinalIgnoreCase)
+            $actualKey = if ($null -eq $Actual) { '' } else { ConvertTo-EvaluationMatchKey -Text ([string]$Actual) }
+            $expectedKey = if ($null -eq $Expected) { '' } else { ConvertTo-EvaluationMatchKey -Text ([string]$Expected) }
+            if ($matchMode -eq 'contains') { return ($actualKey.IndexOf($expectedKey, [System.StringComparison]::Ordinal) -ge 0) }
+            return ($actualKey -eq $expectedKey)
         }
         'integer' {
             if ($null -eq $Actual) { return ($null -eq $Expected) }
@@ -445,29 +542,53 @@ function Get-EvaluationMarkdownTables {
 }
 
 function Find-EvaluationTargetTable {
-    param([object[]]$Tables, [object[]]$HeaderAliases)
-    if ($null -eq $Tables -or @($Tables).Count -eq 0) { return $null }
-    if ($null -eq $HeaderAliases -or @($HeaderAliases).Count -eq 0) { return @($Tables)[0] }
-    $aliases = @($HeaderAliases | ForEach-Object { [string]$_ })
-    foreach ($t in @($Tables)) {
-        $headerText = (@($t.header) -join ' ')
-        $allMatch = $true
-        foreach ($a in $aliases) {
-            if ($headerText.IndexOf($a, [System.StringComparison]::OrdinalIgnoreCase) -lt 0) { $allMatch = $false; break }
-        }
-        if ($allMatch) { return $t }
+    param([object[]]$Tables, [object[]]$HeaderAliases, [object[]]$RequiredColumns)
+    $tablesArr = @($Tables)
+    if ($tablesArr.Count -eq 0) { return [PSCustomObject]@{ Table = $null; Reason = 'none'; Candidates = @() } }
+    $required = @()
+    if ($null -ne $HeaderAliases -and @($HeaderAliases).Count -gt 0) {
+        $required = @($HeaderAliases | ForEach-Object { [string]$_ })
+    } elseif ($null -ne $RequiredColumns -and @($RequiredColumns).Count -gt 0) {
+        $required = @($RequiredColumns | ForEach-Object { [string]$_ })
     }
-    return $null
+    if ($required.Count -eq 0) { return [PSCustomObject]@{ Table = $tablesArr[0]; Reason = 'default'; Candidates = @() } }
+    $matches = @()
+    foreach ($t in $tablesArr) {
+        $allMatch = $true
+        foreach ($r in $required) {
+            if (-not (Test-EvaluationHeaderContains -Header @($t.header) -ColumnName $r)) { $allMatch = $false; break }
+        }
+        if ($allMatch) { $matches += $t }
+    }
+    if ($matches.Count -eq 1) { return [PSCustomObject]@{ Table = $matches[0]; Reason = 'unique'; Candidates = @() } }
+    if ($matches.Count -gt 1) { return [PSCustomObject]@{ Table = $null; Reason = 'ambiguous'; Candidates = $matches } }
+    return [PSCustomObject]@{ Table = $null; Reason = 'none'; Candidates = @() }
 }
 
 function Find-EvaluationColumnIndex {
     param([object[]]$Header, [string]$ColumnName)
+    $colKey = ConvertTo-EvaluationMatchKey -Text $ColumnName
+    if ($colKey.Length -eq 0) { return -1 }
+    $exact = @(); $substring = @()
     for ($i = 0; $i -lt @($Header).Count; $i++) {
-        if ([string]$Header[$i] -eq $ColumnName) { return $i }
+        $hKey = ConvertTo-EvaluationMatchKey -Text ([string]$Header[$i])
+        if ($hKey.Length -eq 0) { continue }
+        if ($hKey -eq $colKey) { $exact += $i }
+        elseif ($hKey.IndexOf($colKey, [System.StringComparison]::Ordinal) -ge 0) { $substring += $i }
     }
-    for ($i = 0; $i -lt @($Header).Count; $i++) {
-        $h = [string]$Header[$i]
-        if ($h.Length -gt 0 -and $h.IndexOf($ColumnName, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) { return $i }
+    if ($exact.Count -eq 1) { return $exact[0] }
+    if ($exact.Count -gt 1) { return -2 }
+    if ($substring.Count -eq 1) { return $substring[0] }
+    if ($substring.Count -gt 1) {
+        $best = @(); $minExtra = -1
+        foreach ($i in $substring) {
+            $hKey = ConvertTo-EvaluationMatchKey -Text ([string]$Header[$i])
+            $extra = $hKey.Length - $colKey.Length
+            if ($minExtra -lt 0 -or $extra -lt $minExtra) { $minExtra = $extra; $best = @($i) }
+            elseif ($extra -eq $minExtra) { $best += $i }
+        }
+        if ($best.Count -eq 1) { return $best[0] }
+        return -2
     }
     return -1
 }
@@ -531,14 +652,24 @@ function Invoke-TabularRowsAssertion {
     if ($tables.Count -eq 0) {
         return New-AssertionResult -Assertion $Assertion -Status 'FAILED' -Actual $null -Expected $expectedRows -FailureReason '回答中未找到 Markdown 表格。'
     }
-    $table = Find-EvaluationTargetTable -Tables $tables -HeaderAliases $headerAliases
-    if ($null -eq $table) {
-        return New-AssertionResult -Assertion $Assertion -Status 'FAILED' -Actual $null -Expected $expectedRows -FailureReason ('未找到包含指定表头（' + ($headerAliases -join '、') + '）的表格。')
+    $requiredColumns = @($columns | ForEach-Object { [string]$_.name })
+    $tableResult = Find-EvaluationTargetTable -Tables $tables -HeaderAliases $headerAliases -RequiredColumns $requiredColumns
+    if ($tableResult.Reason -eq 'none') {
+        $label = if ($headerAliases.Count -gt 0) { $headerAliases } else { $requiredColumns }
+        return New-AssertionResult -Assertion $Assertion -Status 'FAILED' -Actual $null -Expected $expectedRows -FailureReason ('未找到同时包含所需列（' + ($label -join '、') + '）的表格。')
     }
+    if ($tableResult.Reason -eq 'ambiguous') {
+        return New-AssertionResult -Assertion $Assertion -Status 'FAILED' -Actual $null -Expected $expectedRows -FailureReason '存在多张同时包含所需列的表格，无法唯一确定目标表。'
+    }
+    $table = $tableResult.Table
     $colIndex = @{}
     foreach ($col in $columns) {
         $colName = [string]$col.name
         $idx = Find-EvaluationColumnIndex -Header @($table.header) -ColumnName $colName
+        if ($idx -eq -2) {
+            $candidates = @(Get-EvaluationAmbiguousCandidates -Header @($table.header) -ColumnName $colName)
+            return New-AssertionResult -Assertion $Assertion -Status 'FAILED' -Actual $null -Expected $expectedRows -FailureReason ("表头列歧义：$colName 可匹配多个列（" + ($candidates -join '、') + '）。')
+        }
         if ($idx -lt 0) {
             return New-AssertionResult -Assertion $Assertion -Status 'FAILED' -Actual $null -Expected $expectedRows -FailureReason ("未找到表头列：$colName")
         }
@@ -635,10 +766,7 @@ function Invoke-LabeledEntitySetAssertion {
     if ($entityPattern -eq '' -or $labelTerms.Count -eq 0) {
         return New-AssertionResult -Assertion $Assertion -Status 'UNVERIFIABLE' -Actual $null -Expected $expectedEntities -FailureReason 'labeledEntitySet 缺少 labelTerms 或 entityPattern。'
     }
-    $allWindows = @(Get-EvaluationContextWindows -Text $Answer -Terms $labelTerms -MaxContextChars $maxContextChars)
-    $lineWindows = @($allWindows | Where-Object { $_ -notmatch '[\r\n]' })
-    $windows = $lineWindows
-    if ($windows.Count -eq 0) { $windows = $allWindows }
+    $windows = @(Get-LabeledEntityWindows -Text $Answer -LabelTerms $labelTerms -EntityPattern $entityPattern)
     if ($windows.Count -eq 0) {
         return New-AssertionResult -Assertion $Assertion -Status 'FAILED' -Actual $null -Expected $expectedEntities -FailureReason ('未找到目标标签：' + ($labelTerms -join '、'))
     }
